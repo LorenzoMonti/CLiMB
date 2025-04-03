@@ -1,0 +1,11 @@
+matplotlib== 3.3.1
+numpy==1.22.0
+pandas==1.5.3
+scikit-datasets==0.2.4
+scikit-fda==0.3
+scikit-learn==1.2.2
+hdbscan
+seaborn
+pyclustertend==1.4.0
+networkx==3.2.1
+scipy==1.10.1
