@@ -13,7 +13,7 @@ A versatile two-phase clustering algorithm designed for datasets with both known
 ## Installation
 
 ```bash
-pip install CLiMB
+pip install climb-astro
 ```
 
 Or install from source:

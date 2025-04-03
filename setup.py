@@ -21,7 +21,6 @@ setup(
         "Operating System :: OS Independent",
         "Topic :: Scientific/Engineering :: Artificial Intelligence",
         "Topic :: Scientific/Engineering :: Information Analysis",
-        "Topic :: Scientific/Engineering :: Astrophysics",
     ],
     packages=find_packages(),
     python_requires=">=3.7",
