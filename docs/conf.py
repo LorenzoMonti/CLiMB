@@ -9,7 +9,7 @@
 project = 'CLiMB'
 copyright = '2025, Lorenzo Monti'
 author = 'Lorenzo Monti'
-release = '0.1'
+release = '0.1.2'
 
 # -- General configuration ---------------------------------------------------
 # https://www.sphinx-doc.org/en/master/usage/configuration.html#general-configuration
