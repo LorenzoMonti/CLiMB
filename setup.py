@@ -5,7 +5,7 @@ with open("README.md", "r", encoding="utf-8") as fh:
 
 setup(
     name="CLiMB",
-    version="0.1.2",
+    version="0.1.3",
     author="Lorenzo Monti",
     author_email="lorenzomonti42@gmail.com",
     description="CLustering In Multiphase Boundaries (CLIMB) - A two-phase clustering algorithm",
