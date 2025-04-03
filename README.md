@@ -32,8 +32,11 @@ from sklearn.datasets import make_blobs
 from sklearn.preprocessing import StandardScaler
 from CLiMB.core.CLiMB import CLiMB
 
-# Generate synthetic data
-X, y = make_blobs(n_samples=300, centers=3, n_features=3, random_state=42)
+# The number of centers to generate
+centers = 4
+
+# Generate synthetic data with 5 dimensions
+X, y = make_blobs(n_samples=500, centers=centers, n_features=5, random_state=42)
 
 # Scale the data
 scaler = StandardScaler()
@@ -41,25 +44,25 @@ X_scaled = scaler.fit_transform(X)
 
 # Create seed points (optional)
 seed_points = np.array([
-    X[y == 0].mean(axis=0),
-    X[y == 1].mean(axis=0),
-    X[y == 2].mean(axis=0)
+    X[y == i].mean(axis=0) for i in range(centers)
 ])
 seed_points_scaled = scaler.transform(seed_points)
 
 # Initialize and fit CLiMB
 climb = CLiMB(
-    constrained_clusters=3,
+    constrained_clusters=4,
     seed_points=seed_points_scaled,
-    density_threshold=0.2,
-    distance_threshold=2.0
+    density_threshold=0.15,
+    distance_threshold=2.5,
+    radial_threshold=1.2,
+    convergence_tolerance=0.05
 )
 climb.fit(X_scaled)
 
 # Get cluster labels
 labels = climb.get_labels()
 
-# Visualize results (inverse transform to original scale first)
+# Visualize results (only possible in lower dimensions)
 climb.inverse_transform(scaler)
 fig = climb.plot_comprehensive_3d(save_path="./3d")
 fig2 = climb.plot_comprehensive_2d(save_path="./2d")
