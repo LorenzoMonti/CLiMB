@@ -126,4 +126,7 @@ climb.set_density(0.3) \
 
 MIT
 
+## Tests Status
+![Test Status](https://github.com/LorenzoMonti/CLiMB/actions/workflows/test.yml/badge.svg)
+
 ## Citation
