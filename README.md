@@ -61,7 +61,8 @@ labels = climb.get_labels()
 
 # Visualize results (inverse transform to original scale first)
 climb.inverse_transform(scaler)
-fig = climb.plot_comprehensive_3d()
+fig = climb.plot_comprehensive_3d(save_path="./3d")
+fig2 = climb.plot_comprehensive_2d(save_path="./2d")
 ```
 
 ## Examples
