@@ -52,7 +52,9 @@ climb = CLiMB(
     constrained_clusters=3,
     seed_points=seed_points_scaled,
     density_threshold=0.2,
-    distance_threshold=2.0
+    distance_threshold=2.0,
+    radial_threshold=1.0,
+    convergence_tolerance=0.1
 )
 climb.fit(X_scaled)
 
