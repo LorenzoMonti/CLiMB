@@ -183,8 +183,9 @@ class CLiMB:
         blob = df_blob[axis_names]
 
         comparison_result = util.compare_blob(blob, blobs_dict)
-        print(f"Clustering in the new blob: {comparison_result}")
         util.plot_blobs(blobs_dict, blob, filename, axis_names, hiding_cluster)
+        
+        return comparison_result
    
     def inverse_transform(self, scaler):
         """
