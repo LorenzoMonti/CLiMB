@@ -1,6 +1,7 @@
 import numpy as np
+import pandas as pd
 import matplotlib.pyplot as plt
-from mpl_toolkits.mplot3d import Axes3D
+from ..utils import util
 from .KBound import KBound
 from ..exploratory import ExploratoryClusteringBase
 from ..exploratory.DBSCANExploratory import DBSCANExploratory
@@ -137,8 +138,12 @@ class CLiMB:
             radial_threshold=self.radial_threshold,
             convergence_tolerance=self.convergence_tolerance,
         )
-  
-        constrained_kmeans.fit(X, known_labels, is_adaptive=is_adaptive)
+
+        constrained_kmeans.fit(
+            X, 
+            known_labels=known_labels if known_labels is not None else None,
+            is_adaptive=is_adaptive
+        )
         
         self.mapped_labels = constrained_kmeans.mapped_labels_
         self.constrained_labels = constrained_kmeans.labels_
@@ -165,7 +170,22 @@ class CLiMB:
             self.exploratory_labels = np.array([])
 
         return self
-    
+
+    def compare_external_blob(self, path, filename, axis_names, hiding_cluster):
+        """ 
+        Compare known new blob and the clustered ones
+        """
+        blobs_dict = util.split_points_by_labels(self.unassigned_points[:, 0], 
+                            self.unassigned_points[:, 1],
+                            self.exploratory_labels)
+
+        df_blob = pd.read_csv(path)
+        blob = df_blob[axis_names]
+
+        comparison_result = util.compare_blob(blob, blobs_dict)
+        print(f"Clustering in the new blob: {comparison_result}")
+        util.plot_blobs(blobs_dict, blob, filename, axis_names, hiding_cluster)
+   
     def inverse_transform(self, scaler):
         """
         Transform clustering results back to original scale

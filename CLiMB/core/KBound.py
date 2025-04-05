@@ -138,7 +138,7 @@ class KBound:
         # Exact number of seeds
         return centroids
 
-    def fit(self, X, known_labels=None, is_adaptive=False):
+    def fit(self, X, known_labels=None, is_slight_movement=False, is_adaptive=False):
         """
         Perform density-constrained clustering in 3 dimension with assignment constraints 
         (density & distance filtering) and movement constraints (adaptive radial threshold).
@@ -146,7 +146,10 @@ class KBound:
         Args:
         - X: Data points (numpy array)
         - known_labels: Labels corresponding to known centroids (numpy array of shape (n_clusters,))
-        - is_adaptive: boolean to select adaptive radial threshold or static radial threshold (boolean)
+        - slight_movement: boolean that limits centroid updates to a maximum displacement defined by 
+        `radial_threshold`, ensuring smoother convergence and preventing abrupt centroid shifts.
+        - is_adaptive: boolean to select adaptive radial threshold or static radial threshold (boolean).
+        Disables adaptive behavior if slight_movement is False.
         
         Return:
         - self
@@ -159,7 +162,19 @@ class KBound:
         known_centroids = centroids.copy()
         initial_centroids = centroids.copy()  # Store initial positions
         
+        # Default known_labels if not provided
+        if known_labels is None:
+            known_labels = np.arange(self.n_clusters)
+        
+        # Variables to store previous iteration's results in case we need to backtrace
+        prev_centroids = centroids.copy()
+        prev_labels = np.zeros(len(X), dtype=int)
+        prev_unassigned_mask = np.zeros(len(X), dtype=bool)
+
         for i in range(self.max_iter):
+            # Save current state before making changes (for backtrace)
+            prev_centroids = centroids.copy()
+
             # Compute distances to centroids
             distances = cdist(X, centroids)
             
@@ -184,6 +199,10 @@ class KBound:
                     filtered_labels[i] = -1  # Unassigned label
                     continue
             
+            # Save current labels before computing new centroids (for backtrace)
+            prev_labels = filtered_labels.copy()
+            prev_unassigned_mask = unassigned_mask.copy()
+
             # Compute new centroids
             new_centroids = np.array([
                 X[filtered_labels == k].mean(axis=0) 
@@ -199,32 +218,46 @@ class KBound:
               based on local density trying to reduce centroid movement more in dense areas and allow more movement in sparse regions.
             """
             for k in range(self.n_clusters):
+                prev_centroid = new_centroids[k]
+                prev_labels = filtered_labels.copy()
+                prev_unassigned_mask = unassigned_mask.copy()
+
                 displacement = new_centroids[k] - initial_centroids[k]
                 distance_from_initial = np.linalg.norm(displacement)
 
-                if is_adaptive:
-                    # Compute adaptive threshold based on density
-                    if np.any(filtered_labels == k):  # Avoid empty clusters
-                        cluster_density = np.mean(point_densities[filtered_labels == k])
-                        adaptive_threshold = self.radial_threshold * (1 - cluster_density)  # Reduce threshold in dense areas
-                    else:
-                        adaptive_threshold = self.radial_threshold  # Default if no points assigned
+                if is_slight_movement:   
+                    if is_adaptive:
+                        # Compute adaptive threshold based on density
+                        if np.any(filtered_labels == k):  # Avoid empty clusters
+                            cluster_density = np.mean(point_densities[filtered_labels == k])
+                            adaptive_threshold = self.radial_threshold * (1 - cluster_density)  # Reduce threshold in dense areas
+                        else:
+                            adaptive_threshold = self.radial_threshold  # Default if no points assigned
 
-                    # If the centroid moves too far, scale back
-                    if distance_from_initial > adaptive_threshold:
-                        new_centroids[k] = initial_centroids[k] + (displacement / distance_from_initial) * adaptive_threshold
+                        # If the centroid moves too far, scale back
+                        if distance_from_initial > adaptive_threshold:
+                            new_centroids[k] = initial_centroids[k] + (displacement / distance_from_initial) * adaptive_threshold
                     
-                if distance_from_initial > self.radial_threshold:
-                    # Scale displacement to stay within radial threshold
-                    new_centroids[k] = initial_centroids[k] + (displacement / distance_from_initial) * self.radial_threshold
+                    if distance_from_initial > self.radial_threshold:
+                        # Scale displacement to stay within radial threshold
+                        new_centroids[k] = initial_centroids[k] + (displacement / distance_from_initial) * self.radial_threshold
+                else:
+                    # If the new centroid exceeds a certain threshold, restore the previous one and stop
+                    if np.linalg.norm(new_centroids[k] - initial_centroids[k]) > self.radial_threshold:
+                        new_centroids[k] = prev_centroid
+                        filtered_labels = prev_labels
+                        unassigned_mask = prev_unassigned_mask
+                        break
 
             # Updated convergence check, considering radial threshold constraint
             centroid_displacements = np.linalg.norm(new_centroids - centroids, axis=1)
             if np.all(centroid_displacements < self.convergence_tolerance) or np.all(centroid_displacements < self.radial_threshold):
                 break
                 
-            centroids = new_centroids.copy()
+            #centroids = new_centroids.copy()
         
+        print(known_labels)
+        print("....")
         # If known_labels are provided, apply Hungarian algorithm for matching
         if known_labels is not None:
             cluster_mapping, mapped_labels = hungarian_match(known_centroids, centroids, known_labels, filtered_labels)
@@ -233,7 +266,8 @@ class KBound:
         else:
             self.mapped_labels_ = filtered_labels
             self.cluster_mapping_ = {i: i for i in range(self.n_clusters)}
-
+        print(mapped_labels)
+        print("....")
         self.labels_ = filtered_labels
         self.original_centroids_ = known_centroids
         self.centroids_ = new_centroids  # Computed centroids
