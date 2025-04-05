@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "climb-astro"
-version = "0.1.3"
+version = "0.1.4"
 authors = [{ name = "Lorenzo Monti", email = "lorenzomonti42@gmail.com" }]
 description = "A versatile two-phase clustering algorithm designed for datasets with both known and exploratory components."
 readme = "README.md"
