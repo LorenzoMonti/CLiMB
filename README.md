@@ -1,4 +1,5 @@
 # CLustering In Multiphase Boundaries (CLiMB)
+<img src="imgs/icon.png" alt="Descrizione" width="200"/>
 
 A versatile two-phase clustering algorithm designed for datasets with both known and exploratory components.
 
