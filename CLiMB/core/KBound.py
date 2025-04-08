@@ -256,8 +256,6 @@ class KBound:
                 
             #centroids = new_centroids.copy()
         
-        print(known_labels)
-        print("....")
         # If known_labels are provided, apply Hungarian algorithm for matching
         if known_labels is not None:
             cluster_mapping, mapped_labels = hungarian_match(known_centroids, centroids, known_labels, filtered_labels)
@@ -266,8 +264,7 @@ class KBound:
         else:
             self.mapped_labels_ = filtered_labels
             self.cluster_mapping_ = {i: i for i in range(self.n_clusters)}
-        print(mapped_labels)
-        print("....")
+
         self.labels_ = filtered_labels
         self.original_centroids_ = known_centroids
         self.centroids_ = new_centroids  # Computed centroids
