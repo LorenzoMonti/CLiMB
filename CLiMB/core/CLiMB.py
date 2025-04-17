@@ -22,7 +22,9 @@ class CLiMB:
                  distance_threshold=15,
                  radial_threshold=1,
                  convergence_tolerance=0.4,
-                 exploratory_algorithm=None):
+                 exploratory_algorithm=None,
+                 distance_metric="euclidean",
+                 metric_params=None):
         """
         Initialize CLiMB clustering algorithm
         
@@ -55,7 +57,9 @@ class CLiMB:
         self.distance_threshold = distance_threshold
         self.radial_threshold = radial_threshold
         self.convergence_tolerance = convergence_tolerance
-        
+        self.distance_metric= distance_metric
+        self.metric_params = metric_params
+
         # Default to DBSCAN if no exploratory algorithm is provided
         if exploratory_algorithm is None:
             self.exploratory_algorithm = DBSCANExploratory(eps=0.5, min_samples=3)
@@ -109,7 +113,7 @@ class CLiMB:
         self.exploratory_algorithm = exploratory_algorithm
         return self
 
-    def fit(self, X, known_labels=None, is_adaptive=False):
+    def fit(self, X, known_labels=None, is_slight_movement=False):
         """
         Execute two-stage clustering process
         
@@ -121,14 +125,14 @@ class CLiMB:
         known_labels : array-like, default=None
             Known labels for seed points, if available.
             
-        is_adaptive : bool, default=False
-            Whether to use adaptive radial threshold.
+        is_slight_movement : bool, default=False
+            Whether to use slight movement.
             
         Returns:
         --------
         self : CLiMB
             Fitted estimator.
-        """    
+        """
         # Stage 1: Constrained K-Means (KBound)
         constrained_kmeans = KBound(
             n_clusters=self.constrained_clusters, 
@@ -137,12 +141,14 @@ class CLiMB:
             distance_threshold=self.distance_threshold,
             radial_threshold=self.radial_threshold,
             convergence_tolerance=self.convergence_tolerance,
+            distance_metric=self.distance_metric,  # euclidean, mahalanobis, custom
+            metric_params=self.metric_params # None, {'VI': np.linalg.inv(np.cov(X.T))}, ...
         )
 
         constrained_kmeans.fit(
-            X, 
+            X,
+            is_slight_movement=is_slight_movement,
             known_labels=known_labels if known_labels is not None else None,
-            is_adaptive=is_adaptive
         )
         
         self.mapped_labels = constrained_kmeans.mapped_labels_
@@ -190,7 +196,7 @@ class CLiMB:
     def inverse_transform(self, scaler):
         """
         Transform clustering results back to original scale
-        
+
         Parameters:
         -----------
         scaler : object with inverse_transform method
@@ -198,8 +204,23 @@ class CLiMB:
         """
         if self.signed_points is not None:
             self.signed_points = scaler.inverse_transform(self.signed_points)
-        if self.constrained_seeds is not None:
+
+        if isinstance(self.constrained_seeds, dict):
+            inverse_transformed_seeds = {}
+            for centroid_tuple, seed_points_list in self.constrained_seeds.items():
+                centroid_array = np.array([list(centroid_tuple)])
+                inverse_centroid = scaler.inverse_transform(centroid_array)[0]
+                inverse_seed_points_list = []
+                for seed_point in seed_points_list:
+                    seed_point_array = np.array([seed_point])
+                    inverse_seed_point = scaler.inverse_transform(seed_point_array)[0]
+                    inverse_seed_points_list.append(inverse_seed_point.tolist())
+                inverse_transformed_seeds[tuple(inverse_centroid.tolist())] = inverse_seed_points_list
+            self.constrained_seeds = inverse_transformed_seeds
+
+        elif self.constrained_seeds is not None and not isinstance(self.constrained_seeds, dict):
             self.constrained_seeds = scaler.inverse_transform(self.constrained_seeds)
+
         if self.constrained_centroids is not None:
             self.constrained_centroids = scaler.inverse_transform(self.constrained_centroids)
         if self.original_centroids is not None:
@@ -404,12 +425,13 @@ class CLiMB:
 
         # Exploratory Clustering Subplot
         if len(self.unassigned_points) > 0:
+            sizes = np.where(self.exploratory_labels == -1, 0.01, 0.4)
             scatter2 = ax2.scatter(
                 self.unassigned_points[:, dim1], 
                 self.unassigned_points[:, dim2],
                 c=self.exploratory_labels, 
                 cmap='viridis',
-                s=0.4,
+                s=sizes, #0.4,
                 alpha=0.8
             )
             ax2.set_title(f'Exploratory 2D Clustering ({self.exploratory_algorithm.get_name()})')

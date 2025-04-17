@@ -10,6 +10,8 @@ A versatile two-phase clustering algorithm designed for datasets with both known
 - **Flexible Exploratory Phase**: Supports multiple clustering algorithms (DBSCAN, HDBSCAN, OPTICS) through a strategy pattern.
 - **Visualization Tools**: Built-in 2D and 3D visualization capabilities for cluster analysis.
 - **Parameter Tuning**: Builder pattern for flexible parameter adjustment.
+- **Customizable Distance Metrics**: Now supports various distance metrics such as Euclidean, Mahalanobis, and custom metrics, offering greater flexibility in distance calculation.
+- **Advanced Seed Points**: Ability to initialize clustering with known seed points provided in a dictionary structure, allowing for more precise control over centroid initialization.
 
 ## Installation
 
@@ -32,6 +34,7 @@ import numpy as np
 from sklearn.datasets import make_blobs
 from sklearn.preprocessing import StandardScaler
 from CLiMB.core.CLiMB import CLiMB
+from CLiMB.exploratory.DBSCANExploratory import DBSCANExploratory
 
 # The number of centers to generate
 centers = 4
@@ -49,14 +52,25 @@ seed_points = np.array([
 ])
 seed_points_scaled = scaler.transform(seed_points)
 
-# Initialize and fit CLiMB
+# Example of seed points as a dictionary for more precise control
+seed_dict_scaled = {
+    tuple(seed_points_scaled[0]): [tuple(X_scaled[y == 0][0]), tuple(X_scaled[y == 0][1])], # Centroid 1 and associated seed points
+    tuple(seed_points_scaled[1]): [tuple(X_scaled[y == 1][0])],                             # Centroid 2 and associated seed points
+    tuple(seed_points_scaled[2]): [],                                                         # Centroid 3 with no specific seed points
+    tuple(seed_points_scaled[3]): [tuple(X_scaled[y == 3][0]), tuple(X_scaled[y == 3][1]), tuple(X_scaled[y == 3][2])] # Centroid 4 and seed points
+}
+
+# Initialize and fit CLiMB with Mahalanobis metric and dictionary seed points
 climb = CLiMB(
     constrained_clusters=4,
-    seed_points=seed_points_scaled,
+    seed_points=seed_dict_scaled, # Use the dictionary of seed points
     density_threshold=0.15,
     distance_threshold=2.5,
     radial_threshold=1.2,
-    convergence_tolerance=0.05
+    convergence_tolerance=0.05,
+    distance_metric='euclidean',
+    metric_params=None,
+    exploratory_algorithm=DBSCANExploratory(0.5)
 )
 climb.fit(X_scaled)
 
@@ -74,7 +88,8 @@ fig2 = climb.plot_comprehensive_2d(save_path="./2d")
 See the `examples/` directory for detailed usage examples:
 
 - `simple_example.py`: Basic usage with well-defined clusters
-- `mixed_data_example.py`: Handling mixed data with both convex and non-convex clusters
+- `complex_mixed.py`: Handling mixed data with both convex and non-convex clusters
+- `mixed_seeds.py`: Handling mixed data with both convex and non-convex clusters with seeds
 - `compare_methods.py`: Comparing different exploratory clustering methods
 
 ## How It Works
@@ -85,6 +100,8 @@ CLiMB operates in two phases:
    - Uses seed points to guide initial clustering 
    - Applies density and distance constraints
    - Prevents centroids from drifting too far using radial thresholds
+   - Supports customizable distance metrics through the distance_metric and metric_params parameters.
+    - Handles advanced seed points via a dictionary structure for more controlled initialization.
 
 2. **Exploratory Phase**: Uses density-based clustering methods to discover patterns in points not assigned during the first phase.
 
@@ -124,6 +141,80 @@ climb.set_density(0.3) \
      .set_distance(2.5) \
      .set_radial(1.0) \
      .set_convergence(0.1)
+```
+
+### Using Custom Distance Metrics
+To use distance metrics other than Euclidean, you can use the distance_metric and metric_params parameters in the KBound class.
+
+**Example with Mahalanobis Metric:**
+
+```python
+import numpy as np
+from CLiMB.core.KBound import KBound
+
+# ... (Load or generate your data X) ...
+
+# Calculate the inverse covariance matrix (VI) for Mahalanobis
+covariance_matrix = np.cov(X.T)
+inv_covariance_matrix = np.linalg.inv(covariance_matrix)
+
+# Initialize KBound with the Mahalanobis metric and parameters
+kbound = KBound(
+    n_clusters=3,
+    distance_metric='mahalanobis',
+    metric_params={'VI': inv_covariance_matrix}
+)
+kbound.fit(X)
+```
+If you do not provide metric_params for the Mahalanobis metric, the inverse covariance matrix will be automatically calculated on the input data X during fit.
+
+**Example with Custom Metric:**
+```python
+import numpy as np
+from CLiMB.core.KBound import KBound
+from scipy.spatial.distance import euclidean
+
+# Define your custom distance metric
+def custom_distance(u, v):
+    # Example: weighted Euclidean distance, where the first dimension counts double
+    weight = np.array([2, 1, 1]) # Weights for each dimension
+    return euclidean(u * weight, v * weight)
+
+# Initialize KBound with the custom metric
+kbound = KBound(
+    n_clusters=3,
+    distance_metric='custom',
+    metric_params={'func': custom_distance}
+)
+kbound.fit(X)
+```
+
+### Advanced Usage of Seed Points with Dictionary
+In addition to the list of seed points, you can now provide a dictionary to initialize centroids and associate specific seed points with each centroid. This offers more granular control over the initialization of constrained clustering.
+
+**Example of Seed Point Dictionary:**
+```python
+import numpy as np
+from CLiMB.core.KBound import KBound
+
+# ... (Load or generate your data X and define initial centroids and seed points) ...
+
+# Define a dictionary of seed points
+# Keys are initial centroids (points), values are lists of seed points associated with that centroid
+seed_dict = {
+    tuple(initial_centroids[0]): [tuple(seed_point_cluster1_1), tuple(seed_point_cluster1_2)],
+    tuple(initial_centroids[1]): [tuple(seed_point_cluster2_1)],
+    tuple(initial_centroids[2]): [], # No specific seed points for this centroid
+    # ... and so on for all centroids ...
+}
+
+# Initialize KBound with the seed point dictionary
+kbound = KBound(
+    n_clusters=len(initial_centroids),
+    seeds=seed_dict
+    # ... and so on for the other parameters
+)
+kbound.fit(X)
 ```
 
 ## License

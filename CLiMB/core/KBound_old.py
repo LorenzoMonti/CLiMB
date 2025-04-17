@@ -14,16 +14,15 @@ class KBound:
         distance_threshold=2.0,
         radial_threshold=1.0,
         convergence_tolerance=0.1,
-        distance_metric='euclidean',
-        metric_params=None
+        distance_metric='euclidean',  # Added distance_metric parameter
+        metric_params=None # Added metric_params to pass parameters to the distance metric
     ):
         """
         Initialize 3D KBound (Constrained K-Means)
 
         Parameters:
         - n_clusters: Number of target clusters
-        - seeds: Dictionary of {centroid_point: [seed_points]} where centroid_point is the initial centroid location and seed_points is a list of points to be associated with this centroid.
-                 Alternatively, can be a list of initial centroid points as before, or None for random initialization.
+        - seeds: Initial seed points for clustering
         - max_iter: Maximum iterations for convergence
         - density_threshold: Minimum local density required for cluster assignment
         - distance_threshold: Maximum distance from centroid for point retention
@@ -34,6 +33,7 @@ class KBound:
                         For 'mahalanobis', it should contain 'VI' (inverse covariance matrix).
                         For 'custom', it should contain 'func' (the custom distance function).
         """
+
         self.n_clusters = n_clusters
         self.seeds = seeds
         self.max_iter = max_iter
@@ -42,9 +42,8 @@ class KBound:
         self.radial_threshold = radial_threshold
         self.convergence_tolerance = convergence_tolerance
         self.mapped_labels_ = list()
-        self.distance_metric = distance_metric
-        self.metric_params = metric_params
-        self.seed_indices_ = {} # Store indices of seed points for each cluster
+        self.distance_metric = distance_metric # Store the distance metric
+        self.metric_params = metric_params # Store metric parameters
 
 
     def _compute_local_density(self, X, sigma=None):
@@ -55,7 +54,7 @@ class KBound:
         Returns:
         - Normalized local density for each point
         """
-        distances = squareform(pdist(X, metric='euclidean'))
+        distances = squareform(pdist(X, metric='euclidean')) # Always euclidean for density
 
         if sigma is None:
             sigma = np.mean(distances)
@@ -66,108 +65,63 @@ class KBound:
         )
         return density / np.max(density)
 
-
     def _initialize_centroids(self, X):
         """
-        Intelligent centroid initialization strategy, now handles dictionary seeds
+        Intelligent centroid initialization strategy
         """
         if self.seeds is None:
             return X[np.random.choice(len(X), self.n_clusters, replace=False)]
 
-        if isinstance(self.seeds, dict):
-            initial_centroid_locations = list(self.seeds.keys())
-            num_initial_centroids = len(initial_centroid_locations)
-            centroids = np.array(initial_centroid_locations)
+        seeds = np.array(self.seeds)
 
-            if num_initial_centroids >= self.n_clusters:
-                distances = self._cdist_custom(centroids, centroids)
-                np.fill_diagonal(distances, np.inf)
+        if len(seeds) == self.n_clusters:
+            centroids = seeds
 
-                selected_centroid_indices = []
-                while len(selected_centroid_indices) < self.n_clusters:
-                    if not selected_centroid_indices:
-                        selected_centroid_indices.append(0)
-                    else:
-                        candidates = [
-                            i for i in range(num_initial_centroids)
-                            if i not in selected_centroid_indices
-                        ]
-                        max_min_distance = -1
-                        best_candidate = None
+        elif len(seeds) > self.n_clusters:
+            distances = self._cdist_custom(seeds, seeds) # Use custom distance
+            np.fill_diagonal(distances, np.inf)
 
-                        for candidate in candidates:
-                            min_dist = min(
-                                self._cdist_custom(
-                                    [centroids[candidate]],
-                                    [centroids[idx] for idx in selected_centroid_indices]
-                                ).min(),
-                                0
-                            )
-                            if min_dist > max_min_distance:
-                                max_min_distance = min_dist
-                                best_candidate = candidate
-                        selected_centroid_indices.append(best_candidate)
-                return centroids[selected_centroid_indices]
+            selected_seed_indices = []
+            while len(selected_seed_indices) < self.n_clusters:
+                if not selected_seed_indices:
+                    selected_seed_indices.append(0)
+                else:
+                    candidates = [
+                        i for i in range(len(seeds))
+                        if i not in selected_seed_indices
+                    ]
+                    max_min_distance = -1
+                    best_candidate = None
 
-            elif num_initial_centroids < self.n_clusters:
-                remaining_centroids_needed = self.n_clusters - num_initial_centroids
+                    for candidate in candidates:
+                        min_dist = min(
+                            self._cdist_custom( # Use custom distance
+                                [seeds[candidate]],
+                                [seeds[idx] for idx in selected_seed_indices]
+                            ).min(),
+                            0
+                        )
+                        if min_dist > max_min_distance:
+                            max_min_distance = min_dist
+                            best_candidate = candidate
 
-                distances_from_initial_centroids = self._cdist_custom(X, centroids)
-                furthest_point_indices = np.argsort(
-                    distances_from_initial_centroids.min(axis=1)
-                )[-remaining_centroids_needed:]
+                    selected_seed_indices.append(best_candidate)
 
-                additional_centroids = X[furthest_point_indices]
-                return np.vstack([centroids, additional_centroids])
+            return seeds[selected_seed_indices]
 
-        elif isinstance(self.seeds, list): # Original list of seeds handling
-            seeds = np.array(self.seeds)
-            if len(seeds) == self.n_clusters:
-                centroids = seeds
-            elif len(seeds) > self.n_clusters:
-                distances = self._cdist_custom(seeds, seeds)
-                np.fill_diagonal(distances, np.inf)
+        elif len(seeds) < self.n_clusters:
+            initial_centroids = seeds.copy()
+            remaining_centroids = self.n_clusters - len(seeds)
 
-                selected_seed_indices = []
-                while len(selected_seed_indices) < self.n_clusters:
-                    if not selected_seed_indices:
-                        selected_seed_indices.append(0)
-                    else:
-                        candidates = [
-                            i for i in range(len(seeds))
-                            if i not in selected_seed_indices
-                        ]
-                        max_min_distance = -1
-                        best_candidate = None
+            distances_from_seeds = self._cdist_custom(X, initial_centroids) # Use custom distance
+            furthest_point_indices = np.argsort(
+                distances_from_seeds.min(axis=1)
+            )[-remaining_centroids:]
 
-                        for candidate in candidates:
-                            min_dist = min(
-                                self._cdist_custom(
-                                    [seeds[candidate]],
-                                    [seeds[idx] for idx in selected_seed_indices]
-                                ).min(),
-                                0
-                            )
-                            if min_dist > max_min_distance:
-                                max_min_distance = min_dist
-                                best_candidate = candidate
+            additional_centroids = X[furthest_point_indices]
+            return np.vstack([initial_centroids, additional_centroids])
 
-                        selected_seed_indices.append(best_candidate)
-                return seeds[selected_seed_indices]
-
-            elif len(seeds) < self.n_clusters:
-                initial_centroids = seeds.copy()
-                remaining_centroids = self.n_clusters - len(seeds)
-
-                distances_from_seeds = self._cdist_custom(X, initial_centroids)
-                furthest_point_indices = np.argsort(
-                    distances_from_seeds.min(axis=1)
-                )[-remaining_centroids:]
-
-                additional_centroids = X[furthest_point_indices]
-                return np.vstack([initial_centroids, additional_centroids])
-        else: # Fallback to random if seeds is not None but not dict or list for some reason
-            return X[np.random.choice(len(X), self.n_clusters, replace=False)]
+        return centroids
 
 
     def _cdist_custom(self, XA, XB):
@@ -185,6 +139,9 @@ class KBound:
         elif self.distance_metric == 'custom':
             if self.metric_params and 'func' in self.metric_params:
                 custom_dist_func = self.metric_params['func']
+                # cdist does not directly support arbitrary custom functions in the same way,
+                # we might need to iterate and apply the custom function.
+                # This is a simplified approach, might need more efficient implementation for large datasets.
                 distances = np.zeros((XA.shape[0], XB.shape[0]))
                 for i in range(XA.shape[0]):
                     for j in range(XB.shape[0]):
@@ -198,7 +155,7 @@ class KBound:
 
     def fit(self, X, known_labels=None, is_slight_movement=False):
         """
-        Perform density-constrained clustering with radial threshold constraints and custom distance metrics and seed points.
+        Perform density-constrained clustering with radial threshold constraints and custom distance metrics.
         """
         point_densities = self._compute_local_density(X)
         centroids = self._initialize_centroids(X)
@@ -214,31 +171,15 @@ class KBound:
             try:
                 inv_covariance_matrix = np.linalg.inv(covariance_matrix)
             except np.linalg.LinAlgError:
+                # Handle non-invertible covariance matrix (e.g., use pseudoinverse)
                 inv_covariance_matrix = np.linalg.pinv(covariance_matrix)
-            self.metric_params = {'VI': inv_covariance_matrix}
-
-
-        # Prepare seed point indices if seeds are provided as dictionary
-        seed_points_list = []
-        if isinstance(self.seeds, dict):
-            centroid_keys = list(self.seeds.keys())
-            for cluster_idx, centroid_point in enumerate(centroid_keys):
-                seed_points = self.seeds[centroid_point]
-                seed_indices_for_cluster = []
-                for seed_point in seed_points:
-                    seed_index = np.where((X == seed_point).all(axis=1))[0] # Find index of seed point in X
-                    if len(seed_index) > 0:
-                        seed_indices_for_cluster.append(seed_index[0])
-                        seed_points_list.append(X[seed_index[0]]) # Collect seed points for visualization
-                    else:
-                        print(f"Warning: Seed point {seed_point} not found in dataset X.")
-                self.seed_indices_[cluster_idx] = seed_indices_for_cluster # Store indices per cluster
-            seed_points_array = np.array(seed_points_list) if seed_points_list else None
-        else:
-            seed_points_array = np.array(self.seeds) if self.seeds is not None else None
+            self.metric_params = {'VI': inv_covariance_matrix} # Store for use in _cdist_custom
 
 
         for iteration in range(self.max_iter):
+            print(f"\n--- Iterazione {iteration} ---")
+            print("Centroidi all'inizio iterazione:\n", centroids)
+
             prev_centroids = centroids.copy()
 
             # Compute distances to centroids using custom distance function
@@ -248,25 +189,21 @@ class KBound:
 
             filtered_labels = preliminary_labels.copy()
             unassigned_mask = np.zeros(len(X), dtype=bool)
-
             for i in range(len(X)):
                 if point_densities[i] > 1 - self.density_threshold:
                     unassigned_mask[i] = True
                     filtered_labels[i] = -1
-                elif distances[i, filtered_labels[i]] > self.distance_threshold and filtered_labels[i] != -1:
+                elif distances[i, preliminary_labels[i]] > self.distance_threshold:
                     unassigned_mask[i] = True
                     filtered_labels[i] = -1
 
-
-            new_centroids_raw_list = []
-            for k in range(self.n_clusters):
-                cluster_points = X[filtered_labels == k]
-                if np.any(filtered_labels == k):
-                    new_centroids_raw_list.append(cluster_points.mean(axis=0))
-                else:
-                    new_centroids_raw_list.append(centroids[k]) # Keep old centroid if no points in cluster
-            new_centroids_raw = np.array(new_centroids_raw_list)
+            new_centroids_raw = np.array([
+                X[filtered_labels == k].mean(axis=0) if np.any(filtered_labels == k) else centroids[k]
+                for k in range(self.n_clusters)
+            ])
             new_centroids = new_centroids_raw.copy()
+
+            print("Nuovi centroidi PRIMA vincoli radiali:\n", new_centroids_raw)
 
             for k in range(self.n_clusters):
                 displacement = new_centroids_raw[k] - initial_centroids[k]
@@ -274,17 +211,28 @@ class KBound:
 
                 if is_slight_movement:
                     if distance_from_initial > self.radial_threshold:
+                        print(f"Centroide {k}: is_slight_movement=True - Limito spostamento")
                         new_centroids[k] = initial_centroids[k] + (displacement / distance_from_initial) * self.radial_threshold
+                    else:
+                        print(f"Centroide {k}: is_slight_movement=True - Spostamento OK")
                 else:
                     if distance_from_initial > self.radial_threshold:
+                        print(f"Centroide {k}: is_slight_movement=False - ROLLBACK CLUSTER {k}!")
                         new_centroids[k] = prev_centroids[k]
+                    else:
+                        print(f"Centroide {k}: is_slight_movement=False - Spostamento OK")
 
+
+            print("Nuovi centroidi DOPO vincoli radiali:\n", new_centroids)
             centroid_displacements = np.linalg.norm(new_centroids - centroids, axis=1)
+            print("Spostamenti centroidi:\n", centroid_displacements)
 
             if np.all(centroid_displacements < self.convergence_tolerance):
+                print("Convergenza raggiunta!")
                 break
 
             centroids = new_centroids.copy()
+            print("Centroidi aggiornati:\n", centroids)
 
         if known_labels is not None:
             cluster_mapping, mapped_labels = hungarian_match(known_centroids, centroids, known_labels, filtered_labels)
@@ -299,30 +247,15 @@ class KBound:
         self.centroids_ = centroids
         self.point_densities_ = point_densities
         self.unassigned_mask_ = unassigned_mask
-        self.seed_points_array_ = seed_points_array if isinstance(self.seeds, dict) else seed_points_array # Store seed points for visualization
-
-        self._post_process_seeds()
 
         return self
-
-
-    def _post_process_seeds(self):
-        """
-        Post-process cluster labels to ensure seed points are assigned to their intended clusters.
-        This function is called at the end of the fit method.
-        """
-        if isinstance(self.seeds, dict):
-            for cluster_idx in self.seed_indices_:
-                for seed_index in self.seed_indices_[cluster_idx]:
-                    self.labels_[seed_index] = cluster_idx # Forcefully assign seed points to their cluster in final labels
-
 
     def visualize_clustering(self, X):
         """
         Create comprehensive 3D visualization of clustering results
         """
         fig = plt.figure(figsize=(20, 6), dpi=100)
-
+        
         # Clustering Results Subplot
         ax1 = fig.add_subplot(131, projection='3d')
         scatter1 = ax1.scatter(
@@ -336,13 +269,13 @@ class KBound:
         ax1.set_ylabel('Y')
         ax1.set_zlabel('Z')
         fig.colorbar(scatter1, ax=ax1, shrink=0.6)
-
+        
         # Plot seed points with distinct marker style
-        if self.seed_points_array_ is not None: # Use stored seed points array
+        if self.seeds is not None:
             ax1.scatter(
-                self.seed_points_array_[:, 0],
-                self.seed_points_array_[:, 1],
-                self.seed_points_array_[:, 2],
+                self.seeds[:, 0],
+                self.seeds[:, 1],
+                self.seeds[:, 2],
                 c='black',
                 marker='x',
                 s=100,
@@ -360,8 +293,6 @@ class KBound:
             s=100,
             label='Centroids'
         )
-        ax1.legend()
-
 
         # Point Density Subplot
         ax2 = fig.add_subplot(132, projection='3d')
@@ -373,11 +304,11 @@ class KBound:
         )
 
         # Plot seed points with distinct marker style
-        if self.seed_points_array_ is not None: # Use stored seed points array
+        if self.seeds is not None:
             ax2.scatter(
-                self.seed_points_array_[:, 0],
-                self.seed_points_array_[:, 1],
-                self.seed_points_array_[:, 2],
+                self.seeds[:, 0],
+                self.seeds[:, 1],
+                self.seeds[:, 2],
                 c='black',
                 marker='x',
                 s=100,
@@ -401,29 +332,28 @@ class KBound:
         ax2.set_ylabel('Y')
         ax2.set_zlabel('Z')
         fig.colorbar(scatter2, ax=ax2, shrink=0.6)
-        ax2.legend()
-
+        
         # Unassigned Points Subplot
         ax3 = fig.add_subplot(133, projection='3d')
-
+        
         # Separate clusters and unassigned points
         assigned_points = X[~self.unassigned_mask_]
         unassigned_points = X[self.unassigned_mask_]
-
+        
         # Plot assigned points
         scatter3_1 = ax3.scatter(
-            assigned_points[:, 0],
-            assigned_points[:, 1],
+            assigned_points[:, 0], 
+            assigned_points[:, 1], 
             assigned_points[:, 2],
             c='blue',
             alpha=0.5,
             label='Assigned Points'
         )
-
+        
         # Plot unassigned points
         scatter3_2 = ax3.scatter(
-            unassigned_points[:, 0],
-            unassigned_points[:, 1],
+            unassigned_points[:, 0], 
+            unassigned_points[:, 1], 
             unassigned_points[:, 2],
             c='red',
             alpha=0.7,
@@ -431,11 +361,11 @@ class KBound:
         )
 
         # Plot seed points with distinct marker style
-        if self.seed_points_array_ is not None: # Use stored seed points array
+        if self.seeds is not None:
             ax3.scatter(
-                self.seed_points_array_[:, 0],
-                self.seed_points_array_[:, 1],
-                self.seed_points_array_[:, 2],
+                self.seeds[:, 0],
+                self.seeds[:, 1],
+                self.seeds[:, 2],
                 c='black',
                 marker='x',
                 s=100,
@@ -453,14 +383,14 @@ class KBound:
             s=100,
             label='Centroids'
         )
-
+        
         ax3.set_title('Assigned vs Unassigned Points')
         ax3.set_xlabel('X')
         ax3.set_ylabel('Y')
         ax3.set_zlabel('Z')
         ax3.legend()
-
+        
         plt.tight_layout()
         plt.show()
-
+        
         return fig
