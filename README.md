@@ -60,7 +60,7 @@ seed_dict_scaled = {
     tuple(seed_points_scaled[3]): [tuple(X_scaled[y == 3][0]), tuple(X_scaled[y == 3][1]), tuple(X_scaled[y == 3][2])] # Centroid 4 and seed points
 }
 
-# Initialize and fit CLiMB with Mahalanobis metric and dictionary seed points
+# Initialize and fit CLiMB with Euclidean metric and dictionary seed points
 climb = CLiMB(
     constrained_clusters=4,
     seed_points=seed_dict_scaled, # Use the dictionary of seed points
