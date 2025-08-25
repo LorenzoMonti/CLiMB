@@ -5,7 +5,7 @@ with open("README.md", "r", encoding="utf-8") as fh:
 
 setup(
     name="CLiMB",
-    version="0.2.0",
+    version="0.2.3",
     author="Lorenzo Monti",
     author_email="lorenzomonti42@gmail.com",
     description="CLustering In Multiphase Boundaries (CLIMB) - A two-phase clustering algorithm",
@@ -13,7 +13,7 @@ setup(
     long_description_content_type="text/markdown",
     url="https://github.com/LorenzoMonti/CLiMB",
     project_urls={
-        "Bug Tracker": "https://github.com/yourusername/CLiMB/issues",
+        "Bug Tracker": "https://github.com/LorenzoMonti/CLiMB/issues",
     },
     classifiers=[
         "Programming Language :: Python :: 3",
@@ -29,6 +29,7 @@ setup(
         "matplotlib>=3.3.0",
         "scikit-learn>=0.24.0",
         "scipy>=1.6.0",
+        "pandas>=1.5.3",
         "hdbscan>=0.8.27",  # Only if using HDBSCAN
     ],
     extras_require={

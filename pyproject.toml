@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "climb-astro"
-version = "0.2.0"
+version = "0.2.3"
 authors = [{ name = "Lorenzo Monti", email = "lorenzomonti42@gmail.com" }]
 description = "A versatile two-phase clustering algorithm designed for datasets with both known and exploratory components."
 readme = "README.md"
@@ -15,6 +15,7 @@ dependencies = [
     "matplotlib>=3.3.0",
     "scikit-learn>=0.24.0",
     "scipy>=1.6.0",
+    "pandas>=1.5.3",
     "hdbscan>=0.8.27"
 ]
 
