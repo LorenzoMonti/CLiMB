@@ -174,6 +174,10 @@ class KBound:
         """
         Wrapper for cdist with custom distance metric handling.
         """
+
+        XA = np.asarray(XA)
+        XB = np.asarray(XB)
+
         if self.distance_metric == 'euclidean':
             return cdist(XA, XB, metric='euclidean')
         elif self.distance_metric == 'mahalanobis':
@@ -182,6 +186,7 @@ class KBound:
                 return cdist(XA, XB, metric='mahalanobis', VI=VI)
             else:
                 raise ValueError("For mahalanobis distance, metric_params must contain 'VI' (inverse covariance matrix).")
+        
         elif self.distance_metric == 'custom':
             if self.metric_params and 'func' in self.metric_params:
                 custom_dist_func = self.metric_params['func']

@@ -149,6 +149,59 @@ class TestKBound(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "Unsupported distance metric: unsupported_metric"):
             kbound.fit(self.X) # Fit should raise ValueError for unsupported metric
 
+    def test_fit_with_seed_dict_does_not_raise_attribute_error(self):
+        """
+        Tests that KBound.fit() does not raise an AttributeError when initialized
+        with a dictionary of seed points. This replicates a bug where a list
+        was not converted to a NumPy array internally.
+        """
+        # 1. ARRANGE: Create synthetic data and a seed dictionary
+        # (Questa parte è identica a prima)
+        X = np.array([
+            [1, 1], [1, 2], [2, 1], [2, 2],  # Cluster 1
+            [8, 8], [8, 9], [9, 8], [9, 9]   # Cluster 2
+        ])
+
+        initial_centroids = [
+            np.array([1.5, 1.5]),
+            np.array([8.5, 8.5])
+        ]
+        seed_points_cluster1 = [np.array([1, 1]), np.array([2, 1])]
+        seed_points_cluster2 = [np.array([8, 8])]
+
+        seed_dict = {
+            tuple(initial_centroids[0]): [tuple(p) for p in seed_points_cluster1],
+            tuple(initial_centroids[1]): [tuple(p) for p in seed_points_cluster2]
+        }
+
+        # 2. ACT: Instantiate KBound
+        kbound = KBound(
+            n_clusters=2,
+            seeds=seed_dict
+        )
+
+        # 3. ACT & ASSERT: Call fit() and assert that no AttributeError is raised.
+        # Il blocco try...except è un modo robusto per catturare l'errore specifico.
+        try:
+            kbound.fit(X)
+        except AttributeError as e:
+            # Se si verifica questo errore, il test fallisce con un messaggio chiaro.
+            # self.fail() è l'equivalente di pytest.fail()
+            self.fail(
+                f"KBound.fit() raised an unexpected AttributeError. "
+                f"The likely cause is an input to _cdist_custom not being converted to a NumPy array. "
+                f"Error: {e}"
+            )
+        except Exception as e:
+            self.fail(f"KBound.fit() raised an unexpected exception: {e}")
+
+        # 4. ASSERT: Use self.assert... methods for final checks.
+        self.assertTrue(hasattr(kbound, 'centroids_'), "KBound should have a 'centroids_' attribute after fitting.")
+        self.assertIsNotNone(kbound.centroids_, "Centroids should not be None after fitting.")
+        # Per confrontare l'uguaglianza, unittest usa self.assertEqual()
+        # Nota: per gli array NumPy, è meglio confrontare la tupla delle shape
+        self.assertEqual(kbound.centroids_.shape, (2, 2), "The shape of the final centroids should be (n_clusters, n_features).")
+
 
 if __name__ == '__main__':
     unittest.main()
