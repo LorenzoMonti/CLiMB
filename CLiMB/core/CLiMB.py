@@ -69,6 +69,40 @@ class CLiMB:
             self.exploratory_algorithm = exploratory_algorithm
         
         # Tracking clustering results
+        # Labels are variables that store the cluster identifiers assigned to each data point.
+        # A value of -1 typically indicates that a point is considered noise and has not been assigned to any cluster.
+        
+        # self.mapped_labels: stores the remapped cluster labels from the constrained clustering phase (KBound).
+        # Remapping ensures that cluster IDs are consistent and sequential.
+        
+        # self.constrained_labels: contains the raw cluster labels assigned during the first phase (constrained clustering).
+        # Points that do not meet the density or distance criteria to belong to a known cluster are assigned a label of -1.
+        
+        # self.density_constrained_labels: a subset of `constrained_labels`. It includes only the labels for points that were
+        # successfully assigned to a cluster (i.e., where the label is not -1). This is primarily used for visualizing the 
+        # results of the constrained phase.
+        
+        # self.exploratory_labels: stores the cluster labels assigned during the second (exploratory) phase. These labels
+        # are assigned only to the `unassigned_points`. The label values are offset to ensure they do not overlap with the 
+        # `constrained_labels` (e.g., if constrained labels are 0, 1, 2, exploratory labels might start from 3, 4, ...).
+        
+        # known_labels (parameter for fit()): An optional array of pre-existing labels corresponding to the `seed_points`.
+        # If provided, these labels help guide the initial cluster assignments in the constrained phase.
+
+        # Points are variables that refer to arrays of data points (i.e., subsets of the original dataset `X`).
+    
+        # self.seed_points (parameter for __init__()):  an array-like structure containing the coordinates of initial, known 
+        # cluster centers. The constrained clustering phase uses these points as anchors to form the initial clusters.
+        
+        # self.signed_points: contains all data points from the original dataset `X` that were assigned a valid
+        # cluster label (i.e., a label other than -1) during the constrained clustering phase.
+        # These represent the points belonging to the "known" or "constrained" clusters.
+        
+        # self.unassigned_points: represents the set of all data points from the original dataset `X` that were NOT
+        # assigned to any cluster during the constrained phase (i.e., all points with a label of -1).
+        # This subset of data is then passed to the exploratory clustering algorithm in the second phase
+        # to discover new, previously unknown patterns.
+
         self.mapped_labels = None
         self.constrained_labels = None
         self.density_constrained_labels = None
