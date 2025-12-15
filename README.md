@@ -217,11 +217,16 @@ kbound = KBound(
 kbound.fit(X)
 ```
 
+## Documentation
+Full documentation is available at [https://climb-astro.readthedocs.io](https://climb-astro.readthedocs.io).
+
 ## License
 
 MIT
 
-## Tests Status
+## Project status
 ![Test Status](https://github.com/LorenzoMonti/CLiMB/actions/workflows/test.yml/badge.svg)
+[![Documentation Status](https://readthedocs.org/projects/climb-astro/badge/?version=latest)](https://climb-astro.readthedocs.io/en/latest/?badge=latest)
+[![PyPI version](https://badge.fury.io/py/climb-astro.svg)](https://badge.fury.io/py/climb-astro)
 
 ## Citation
