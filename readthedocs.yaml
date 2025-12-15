@@ -6,7 +6,7 @@ build:
     python: "3.10"
 
 sphinx:
-  configuration: docs/conf.py # Percorso al file conf.py di Sphinx
+  configuration: docs/source/conf.py 
 
 python:
   install:
