@@ -230,7 +230,7 @@ MIT
 [![PyPI version](https://badge.fury.io/py/climb-astro.svg)](https://badge.fury.io/py/climb-astro)
 
 ## Citations
-
+```
 @article{monti2026climb,
   title={CLiMB: A Domain-Informed Novelty Detection Clustering Framework for Scientific Discovery},
   author={Monti, Lorenzo and Muraveva, Tatiana and Sheridan, Brian and Massari, Davide and Garofalo, Alessia and Clementini, Gisella and Michelucci, Umberto},
@@ -244,3 +244,4 @@ MIT
   journal={arXiv preprint arXiv:2602.19858},
   year={2026}
 }
+```
