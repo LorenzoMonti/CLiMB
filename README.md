@@ -229,4 +229,18 @@ MIT
 [![Documentation Status](https://readthedocs.org/projects/climb-astro/badge/?version=latest)](https://climb-astro.readthedocs.io/en/latest/?badge=latest)
 [![PyPI version](https://badge.fury.io/py/climb-astro.svg)](https://badge.fury.io/py/climb-astro)
 
-## Citation
+## Citations
+
+@article{monti2026climb,
+  title={CLiMB: A Domain-Informed Novelty Detection Clustering Framework for Scientific Discovery},
+  author={Monti, Lorenzo and Muraveva, Tatiana and Sheridan, Brian and Massari, Davide and Garofalo, Alessia and Clementini, Gisella and Michelucci, Umberto},
+  journal={arXiv preprint arXiv:2601.09768},
+  year={2026}
+}
+
+@article{muraveva2026probing,
+  title={Probing the Milky Way Halo with RR Lyrae Stars from Gaia Data Release 3},
+  author={Muraveva, T and Monti, L and Massari, D and De Leo, M and Garofalo, A and Clementini, G and Ceccarelli, E and Michelucci, U},
+  journal={arXiv preprint arXiv:2602.19858},
+  year={2026}
+}
