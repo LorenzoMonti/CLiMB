@@ -232,16 +232,21 @@ MIT
 ## Citations
 ```
 @article{monti2026climb,
-  title={CLiMB: A Domain-Informed Novelty Detection Clustering Framework for Scientific Discovery},
+  title={CLiMB: A domain-informed novelty detection clustering framework for galactic archaeology and scientific discovery},
   author={Monti, Lorenzo and Muraveva, Tatiana and Sheridan, Brian and Massari, Davide and Garofalo, Alessia and Clementini, Gisella and Michelucci, Umberto},
-  journal={arXiv preprint arXiv:2601.09768},
-  year={2026}
+  journal={Astronomy and Computing},
+  pages={101118},
+  year={2026},
+  publisher={Elsevier}
 }
 
 @article{muraveva2026probing,
-  title={Probing the Milky Way Halo with RR Lyrae Stars from Gaia Data Release 3},
+  title={Probing the Milky Way halo with RR Lyrae stars from Gaia Data Release 3},
   author={Muraveva, T and Monti, L and Massari, D and De Leo, M and Garofalo, A and Clementini, G and Ceccarelli, E and Michelucci, U},
-  journal={arXiv preprint arXiv:2602.19858},
-  year={2026}
+  journal={Astronomy \& Astrophysics},
+  volume={708},
+  pages={A384},
+  year={2026},
+  publisher={EDP Sciences}
 }
 ```
