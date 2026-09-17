@@ -33,8 +33,11 @@ class CLiMB:
         constrained_clusters : int, default=3
             Number of clusters in first stage (constrained clustering)
             
-        seed_points : array-like, default=None
-            Initial known cluster centers (optional)
+        seed_points : dict, sequence or None, default=None
+            Known cluster centres. A dict of {centroid: [seed points]} also pins
+            those seed points to their cluster; a sequence (list, tuple or
+            ndarray) of centroids only places the initial centroids. None
+            initialises at random. Any other type raises TypeError.
             
         density_threshold : float, default=0.2
             Minimum local density required for cluster assignment

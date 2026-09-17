@@ -41,6 +41,10 @@ def compare_exploratory_methods():
         X_blobs[y_blobs == label].mean(axis=0) for label in np.unique(y_blobs)
     ])
     seed_points_scaled = scaler.transform(seed_points)
+    # Passed as a sequence, these place the initial centroids and anchor the
+    # radial constraint. They do not pin individual points to a cluster: that is
+    # what the dict form {centroid: [seed points]} does (see the README), and it
+    # is the form KBound records in seed_indices_.
     
     # Create different exploratory algorithms
     exploratory_methods = {

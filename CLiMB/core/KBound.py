@@ -60,7 +60,10 @@ class KBound:
         Parameters:
         - n_clusters: Number of target clusters
         - seeds: Dictionary of {centroid_point: [seed_points]} where centroid_point is the initial centroid location and seed_points is a list of points to be associated with this centroid.
-                 Alternatively, can be a list of initial centroid points as before, or None for random initialization.
+                 Only the dictionary form pins its seed points to a cluster (see seed_indices_); the other forms
+                 just place the initial centroids.
+                 Alternatively, a sequence of initial centroid points (list, tuple or ndarray), or None for
+                 random initialization. Any other type raises TypeError rather than falling back to random.
         - max_iter: Maximum iterations for convergence
         - density_threshold: Minimum local density required for cluster assignment
         - distance_threshold: Maximum distance from centroid for point retention
@@ -157,8 +160,11 @@ class KBound:
                 additional_centroids = X[furthest_point_indices]
                 return np.vstack([centroids, additional_centroids])
 
-        elif isinstance(self.seeds, list): # Original list of seeds handling
-            seeds = np.array(self.seeds)
+        elif isinstance(self.seeds, (list, tuple, np.ndarray)):
+            # Any sequence of centroid points. numpy arrays belong here: scaling
+            # seeds produces one (scaler.transform always returns an ndarray),
+            # so this is the shape callers arrive with most often.
+            seeds = np.asarray(self.seeds)
             if len(seeds) == self.n_clusters:
                 return seeds
             elif len(seeds) > self.n_clusters:
@@ -203,8 +209,15 @@ class KBound:
 
                 additional_centroids = X[furthest_point_indices]
                 return np.vstack([initial_centroids, additional_centroids])
-        else: # Fallback to random if seeds is not None but not dict or list for some reason
-            return X[np.random.choice(len(X), self.n_clusters, replace=False)]
+        else:
+            # Previously this fell back to random initialisation, which meant an
+            # unrecognised container silently discarded the seeds and left the
+            # caller believing the clustering was anchored when it was not.
+            raise TypeError(
+                f"seeds must be a dict of {{centroid: [seed points]}}, a sequence "
+                f"of centroid points (list, tuple or ndarray), or None for random "
+                f"initialisation; got {type(self.seeds).__name__}."
+            )
 
 
     def _cdist_custom(self, XA, XB):

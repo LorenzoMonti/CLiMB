@@ -11,12 +11,8 @@ class TestCLiMB(unittest.TestCase):
     
     def setUp(self):
         """Create synthetic datasets for testing"""
-        # KBound falls back to np.random.choice for centroid initialisation, off
-        # the global RNG. Several tests below pass seed_points as a numpy array,
-        # which _initialize_centroids recognises as neither dict nor list and so
-        # discards -- they are exercising that random path without meaning to,
-        # which makes them depend on whatever ran before them. Pin the RNG so the
-        # suite is order-independent.
+        # KBound still initialises from the global RNG when no seeds are given,
+        # so pin it to keep the suite order-independent.
         np.random.seed(42)
 
         # Create dataset with known clusters

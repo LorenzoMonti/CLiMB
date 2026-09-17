@@ -118,6 +118,35 @@ class TestKBound(unittest.TestCase):
         self.assertEqual(kbound.centroids_.shape, (self.n_clusters, self.X.shape[1]))
         np.testing.assert_array_equal(kbound.original_centroids_, np.array(seeds_list))
 
+    def test_seed_container_does_not_change_the_result(self):
+        """
+        Seeds used to be dispatched on the container type, so a numpy array --
+        what scaler.transform() hands back, and what every example in the repo
+        passed -- matched neither the dict nor the list branch and fell through
+        to random initialisation. The seeds were discarded in silence and the
+        radial constraint anchored to a random point instead of the seed.
+        """
+        seeds = [self.X[10], self.X[30], self.X[60]]
+        kw = dict(n_clusters=self.n_clusters, density_threshold=0.05,
+                  distance_threshold=3.0, radial_threshold=0.5,
+                  convergence_tolerance=1e-6)
+
+        reference = KBound(seeds=list(seeds), **kw).fit(self.X)
+        for name, container in (("list", list(seeds)),
+                                ("tuple", tuple(seeds)),
+                                ("ndarray", np.array(seeds))):
+            with self.subTest(container=name):
+                kbound = KBound(seeds=container, **kw).fit(self.X)
+                np.testing.assert_array_equal(kbound.original_centroids_, np.array(seeds))
+                np.testing.assert_array_equal(kbound.labels_, reference.labels_)
+
+    def test_unsupported_seed_type_raises_instead_of_going_random(self):
+        """An unrecognised container must fail loudly, not look like seeding."""
+        for bad in ({1, 2, 3}, "seeds", 42):
+            with self.subTest(seeds=type(bad).__name__):
+                with self.assertRaises(TypeError):
+                    KBound(n_clusters=self.n_clusters, seeds=bad).fit(self.X)
+
     def test_fit_with_known_labels(self):
         """Test fit method with known labels."""
         known_labels = np.array([0] * 30 + [1] * 30 + [2] * 40) # Example known labels
