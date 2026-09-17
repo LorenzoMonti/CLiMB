@@ -33,8 +33,11 @@ class CLiMB:
         constrained_clusters : int, default=3
             Number of clusters in first stage (constrained clustering)
             
-        seed_points : array-like, default=None
-            Initial known cluster centers (optional)
+        seed_points : dict, sequence or None, default=None
+            Known cluster centres. A dict of {centroid: [seed points]} also pins
+            those seed points to their cluster; a sequence (list, tuple or
+            ndarray) of centroids only places the initial centroids. None
+            initialises at random. Any other type raises TypeError.
             
         density_threshold : float, default=0.2
             Minimum local density required for cluster assignment
@@ -103,6 +106,7 @@ class CLiMB:
         # This subset of data is then passed to the exploratory clustering algorithm in the second phase
         # to discover new, previously unknown patterns.
 
+        self.kbound_ = None
         self.mapped_labels = None
         self.constrained_labels = None
         self.density_constrained_labels = None
@@ -185,6 +189,11 @@ class CLiMB:
             known_labels=known_labels if known_labels is not None else None,
         )
         
+        # Keep the fitted Phase-1 model: it carries the densities, the pinned
+        # seed indices and the deciding centroids, which is everything an
+        # explainer needs to rebuild the gates instead of re-deriving them.
+        self.kbound_ = constrained_kmeans
+
         self.mapped_labels = constrained_kmeans.mapped_labels_
         self.constrained_labels = constrained_kmeans.labels_
         self.constrained_seeds = constrained_kmeans.seeds if hasattr(constrained_kmeans, 'seeds') else None
@@ -210,6 +219,104 @@ class CLiMB:
             self.exploratory_labels = np.array([])
 
         return self
+
+    def explain(self, X, feature_names=None, scaler=None, check_fidelity=True):
+        """
+        Per-point account of both phases, joined into one table.
+
+        Phase 1 explains every point: which gate decided it, and the label that
+        follows from replaying the gates. Phase 2 explains only the points
+        Phase 1 rejected, in whatever terms its algorithm actually uses -- which
+        differ between DBSCAN, OPTICS and HDBSCAN and are documented on each.
+        Phase-2 columns are ``NaN`` for points Phase 1 kept, since Phase 2 never
+        saw them.
+
+        Both reconstructions are verified against their own model before the
+        table is returned, so a table that comes back is one that reproduces the
+        clustering. See ``CLiMB.explain`` (the module) for which columns are
+        reconstructions and which are reported model state.
+
+        Call this **before** ``inverse_transform``, which rewrites
+        ``constrained_centroids`` and ``unassigned_points`` in place and would
+        leave the stored model describing a different space than ``X``. To
+        report features in original units, pass ``scaler`` here instead.
+
+        Parameters
+        ----------
+        X : array-like of shape (n_samples, n_features)
+            The same matrix passed to ``fit``.
+        feature_names : sequence of str, optional
+            Names for the feature columns copied into the table. Defaults to
+            ``feature_0 ... feature_{d-1}``.
+        scaler : object with ``inverse_transform``, optional
+            Used only to report the feature columns in their original units. The
+            explanation itself is computed in the space the model was fitted in.
+        check_fidelity : bool, default=True
+            Raise if either phase fails to reproduce its model.
+
+        Returns
+        -------
+        pandas.DataFrame
+            One row per point of ``X``: the feature columns, ``final_label``,
+            ``phase``, then ``phase1_*`` for every point and ``phase2_*`` for
+            the points Phase 2 received.
+
+        Raises
+        ------
+        RuntimeError
+            If ``fit`` has not been called, or a reconstruction disagrees with
+            its model while ``check_fidelity`` is on.
+        """
+        if self.kbound_ is None:
+            raise RuntimeError("explain() needs a fitted model; call fit(X) first.")
+
+        X = np.asarray(X)
+        n = len(X)
+
+        phase1 = self.kbound_.decision_path(X, check_fidelity=check_fidelity)
+
+        features = scaler.inverse_transform(X) if scaler is not None else X
+        if feature_names is None:
+            feature_names = [f"feature_{j}" for j in range(X.shape[1])]
+        feature_names = list(feature_names)
+        if len(feature_names) != X.shape[1]:
+            raise ValueError(
+                f"feature_names has {len(feature_names)} entries for "
+                f"{X.shape[1]} columns of X."
+            )
+
+        table = pd.DataFrame({"point_index": np.arange(n)})
+        for j, name in enumerate(feature_names):
+            table[name] = features[:, j]
+
+        assigned_in_phase1 = self.constrained_labels != -1
+        table["final_label"] = self.get_labels()
+        table["phase"] = np.where(assigned_in_phase1, 1, 2)
+
+        for column in phase1.columns:
+            if column != "point_index":
+                table[f"phase1_{column}"] = phase1[column].to_numpy()
+
+        # Phase 2 saw only the rejected points, in their original row order.
+        rejected = np.where(~assigned_in_phase1)[0]
+        if len(rejected) and self.unassigned_points is not None and len(self.unassigned_points):
+            phase2 = self.exploratory_algorithm.explain(
+                self.unassigned_points, check_fidelity=check_fidelity
+            )
+            for column in phase2.columns:
+                if column == "point_index":
+                    continue
+                values = phase2[column].to_numpy()
+                # Object and boolean columns cannot hold NaN for the Phase-1
+                # rows, so widen them rather than lose the distinction.
+                if values.dtype == bool or values.dtype == object:
+                    full = np.full(n, None, dtype=object)
+                else:
+                    full = np.full(n, np.nan)
+                full[rejected] = values
+                table[f"phase2_{column}"] = full
+
+        return table
 
     def compare_external_blob(self, path, filename, axis_names, hiding_cluster):
         """ 
