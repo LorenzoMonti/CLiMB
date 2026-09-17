@@ -103,6 +103,7 @@ class CLiMB:
         # This subset of data is then passed to the exploratory clustering algorithm in the second phase
         # to discover new, previously unknown patterns.
 
+        self.kbound_ = None
         self.mapped_labels = None
         self.constrained_labels = None
         self.density_constrained_labels = None
@@ -185,6 +186,11 @@ class CLiMB:
             known_labels=known_labels if known_labels is not None else None,
         )
         
+        # Keep the fitted Phase-1 model: it carries the densities, the pinned
+        # seed indices and the deciding centroids, which is everything an
+        # explainer needs to rebuild the gates instead of re-deriving them.
+        self.kbound_ = constrained_kmeans
+
         self.mapped_labels = constrained_kmeans.mapped_labels_
         self.constrained_labels = constrained_kmeans.labels_
         self.constrained_seeds = constrained_kmeans.seeds if hasattr(constrained_kmeans, 'seeds') else None

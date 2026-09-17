@@ -1,10 +1,47 @@
 import numpy as np
+import pandas as pd
 import matplotlib.pyplot as plt
 from scipy.spatial.distance import cdist, pdist, squareform
 from mpl_toolkits.mplot3d import Axes3D
 from ..utils.util import hungarian_match
 
 class KBound:
+    """
+    Constrained k-means anchored to literature seed points.
+
+    Attributes set by ``fit`` (public, stable API)
+    ----------------------------------------------
+    labels_ : ndarray of shape (n_samples,)
+        Raw cluster index per point, ``-1`` for points rejected by a gate.
+        These are the labels CLiMB's Phase 1 exposes as ``constrained_labels``.
+    centroids_ : ndarray of shape (n_clusters, n_features)
+        Final centroid estimate. Use it to plot, or to place new points.
+    decision_centroids_ : ndarray of shape (n_clusters, n_features)
+        The centroids ``labels_`` was actually computed against. Identical to
+        ``centroids_`` whenever the fit converged; they differ by one update
+        when the loop exits on ``max_iter``, because the centroid refresh at
+        the end of the loop body is skipped by the convergence ``break`` but
+        not by exhaustion. Reconstructing decisions requires this one --
+        ``centroids_`` would describe a decision the algorithm never took.
+    point_densities_, local_density_ : ndarray of shape (n_samples,)
+        Normalised Gaussian-kernel local density, the input to the density
+        gate. ``local_density_`` is a read-only alias.
+    seed_indices_ : dict of {int: list of int}
+        ``{cluster index: row indices of X pinned to it}``, populated only for
+        dictionary seeds. These are the points ``_post_process_seeds`` forces
+        into their cluster after the gates have run, so their label is copied
+        rather than derived.
+    unassigned_mask_ : ndarray of shape (n_samples,)
+        True where a gate rejected the point (before seed forcing).
+    n_iter_ : int
+        Iterations actually run.
+    converged_ : bool
+        Whether the loop exited on the convergence test rather than ``max_iter``.
+    fidelity_ : float
+        Set by ``decision_path``: fraction of non-seed points whose label the
+        closed-form reconstruction reproduces. Expected to be exactly 1.0.
+    """
+
     def __init__(
         self,
         n_clusters,
@@ -243,8 +280,19 @@ class KBound:
             seed_points_array = np.array(self.seeds) if self.seeds is not None else None
 
 
+        iteration = -1
+        converged = False
+        decision_centroids = centroids.copy()
+
         for iteration in range(self.max_iter):
             prev_centroids = centroids.copy()
+
+            # Centroids that actually decide this round's labels. `centroids` is
+            # only updated at the very end of the loop body, which the
+            # convergence `break` skips -- but a max_iter exit does not. Keeping
+            # the deciding set separately is what lets decision_path() rebuild
+            # labels_ exactly however the loop ended.
+            decision_centroids = centroids.copy()
 
             # Compute distances to centroids using custom distance function
             distances = self._cdist_custom(X, centroids)
@@ -287,6 +335,7 @@ class KBound:
             centroid_displacements = np.linalg.norm(new_centroids - centroids, axis=1)
 
             if np.all(centroid_displacements < self.convergence_tolerance):
+                converged = True
                 break
 
             centroids = new_centroids.copy()
@@ -302,6 +351,9 @@ class KBound:
         self.labels_ = filtered_labels
         self.original_centroids_ = known_centroids
         self.centroids_ = centroids
+        self.decision_centroids_ = decision_centroids
+        self.n_iter_ = iteration + 1
+        self.converged_ = converged
         self.point_densities_ = point_densities
         self.unassigned_mask_ = unassigned_mask
         self.seed_points_array_ = seed_points_array if isinstance(self.seeds, dict) else seed_points_array # Store seed points for visualization
@@ -321,6 +373,173 @@ class KBound:
                 for seed_index in self.seed_indices_[cluster_idx]:
                     self.labels_[seed_index] = cluster_idx # Forcefully assign seed points to their cluster in final labels
 
+
+    # ------------------------------------------------------------------
+    # Interpretability: closed-form reconstruction of the Phase-1 decisions
+    # ------------------------------------------------------------------
+
+    @property
+    def local_density_(self):
+        """
+        Normalised local density per point, the quantity the density gate
+        compares against ``1 - density_threshold``.
+
+        Read-only alias of ``point_densities_``, kept so explainers do not have
+        to re-derive the density (and silently drift from it if the kernel
+        here ever changes).
+        """
+        if not hasattr(self, "point_densities_"):
+            raise AttributeError(
+                "local_density_ is only available after fit(); call fit(X) first."
+            )
+        return self.point_densities_
+
+    def _seed_labels(self, n_samples):
+        """
+        Per-point cluster index for pinned seeds, ``-1`` where the point is not
+        a seed. Derived from ``seed_indices_``, so it stays in step with what
+        ``_post_process_seeds`` actually forced.
+        """
+        seed_cluster = np.full(n_samples, -1, dtype=int)
+        for cluster_idx, indices in self.seed_indices_.items():
+            for row in indices:
+                seed_cluster[row] = cluster_idx
+        return seed_cluster
+
+    def decision_path(self, X, check_fidelity=True):
+        """
+        Reconstruct, in closed form, why each point received its label.
+
+        Phase 1 uses no latent representation: a point goes to the nearest
+        seed-anchored centroid unless one of two explicit gates rejects it, and
+        literature seeds are pinned regardless. This method replays those rules
+        against the state stored by ``fit``, so it is an exact reconstruction of
+        the model rather than a surrogate such as SHAP or LIME.
+
+        The gates are evaluated in the order ``fit`` applies them:
+
+        1. density  -- ``local_density > 1 - density_threshold`` -> noise
+        2. distance -- ``d(point, nearest centroid) > distance_threshold`` -> noise
+        3. otherwise, assigned to the nearest centroid
+        4. seed forcing overrides 1-3 for dictionary seed points
+
+        Because seed labels are copied rather than derived, they are excluded
+        from the fidelity check, which would otherwise be vacuous on them.
+
+        Parameters
+        ----------
+        X : array-like of shape (n_samples, n_features)
+            The same matrix passed to ``fit``. Densities and seed indices are
+            stored by row position, so another matrix yields a meaningless
+            table; ``check_fidelity`` is what turns that into a loud failure.
+        check_fidelity : bool, default=True
+            Raise if the reconstruction does not reproduce ``labels_`` on every
+            non-seed point. Leave it on: it is the guarantee this method exists
+            to provide.
+
+        Returns
+        -------
+        pandas.DataFrame
+            One row per point, with the gate outcomes, the reconstructed label
+            and the margins that separate each point from flipping.
+
+        Raises
+        ------
+        RuntimeError
+            If the model is not fitted, or the reconstruction disagrees with
+            ``labels_`` while ``check_fidelity`` is on.
+        ValueError
+            If ``X`` has a different number of rows than the fitted data.
+        """
+        if not hasattr(self, "labels_"):
+            raise RuntimeError(
+                "decision_path() needs a fitted model; call fit(X) first."
+            )
+
+        X = np.asarray(X)
+        n = len(self.labels_)
+        if len(X) != n:
+            raise ValueError(
+                f"decision_path() expects the matrix passed to fit(): "
+                f"got {len(X)} rows, fitted on {n}."
+            )
+
+        arange = np.arange(n)
+
+        # Reconstruct against the centroids that decided, and through the same
+        # metric wrapper fit() used -- so a change of distance_metric cannot
+        # quietly desynchronise the explanation from the model.
+        distances = self._cdist_custom(X, self.decision_centroids_)
+        nearest = np.argmin(distances, axis=1)
+        d_nearest = distances[arange, nearest]
+
+        density = self.point_densities_
+        density_limit = 1 - self.density_threshold
+        density_passed = density <= density_limit
+        distance_passed = d_nearest <= self.distance_threshold
+
+        seed_cluster = self._seed_labels(n)
+        is_seed = seed_cluster != -1
+
+        gate = np.empty(n, dtype=object)
+        gate[:] = "assigned"
+        gate[~distance_passed] = "rejected_distance"
+        gate[~density_passed] = "rejected_density"   # density is tested first
+
+        reconstructed = np.where(density_passed & distance_passed, nearest, -1)
+
+        gate[is_seed] = "seed_forced"
+        reconstructed[is_seed] = seed_cluster[is_seed]
+
+        # Runner-up centroid: how much of a lead the winner had.
+        if self.decision_centroids_.shape[0] > 1:
+            masked = distances.copy()
+            masked[arange, nearest] = np.inf
+            competitor = np.argmin(masked, axis=1)
+            d_competitor = distances[arange, competitor]
+        else:
+            competitor = np.full(n, -1, dtype=int)
+            d_competitor = np.full(n, np.nan)
+
+        non_seed = ~is_seed
+        if non_seed.any():
+            agree = reconstructed[non_seed] == self.labels_[non_seed]
+            self.fidelity_ = float(np.mean(agree))
+            n_mismatch = int(np.size(agree) - np.count_nonzero(agree))
+        else:
+            self.fidelity_ = 1.0
+            n_mismatch = 0
+
+        if check_fidelity and n_mismatch:
+            raise RuntimeError(
+                f"decision_path() reproduced only {self.fidelity_:.4%} of labels_ "
+                f"({n_mismatch} of {int(non_seed.sum())} non-seed points disagree). "
+                "The reconstruction is meant to be exact, so this means the model "
+                "state and the gates have drifted apart -- check that X is the "
+                "matrix fit() was given, and that fit() stored decision_centroids_."
+            )
+
+        return pd.DataFrame({
+            "point_index": arange,
+            "label": self.labels_,
+            "reconstructed_label": reconstructed,
+            "gate": gate,
+            "is_seed": is_seed,
+            "seed_cluster": seed_cluster,
+            "local_density": density,
+            "density_passed": density_passed,
+            # >0 means the point sits below the density ceiling, so it survives.
+            "density_margin": density_limit - density,
+            "nearest_cluster": nearest,
+            "distance_to_nearest": d_nearest,
+            "distance_passed": distance_passed,
+            # >0 means the point sits inside the distance ball.
+            "distance_margin": self.distance_threshold - d_nearest,
+            "competitor_cluster": competitor,
+            "distance_to_competitor": d_competitor,
+            # Lead of the winning centroid over the runner-up.
+            "margin": d_competitor - d_nearest,
+        })
 
     def visualize_clustering(self, X):
         """

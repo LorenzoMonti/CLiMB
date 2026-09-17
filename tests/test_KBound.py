@@ -215,3 +215,201 @@ class TestKBound(unittest.TestCase):
 
 if __name__ == '__main__':
     unittest.main()
+
+class TestKBoundDecisionPath(unittest.TestCase):
+    """
+    Phase-1 decisions are two explicit gates plus seed forcing, so explaining
+    them is a closed-form replay of the model, not a surrogate fit. These tests
+    promote that to an invariant: the reconstruction must reproduce ``labels_``
+    on every non-seed point, exactly, however the fit loop ended.
+    """
+
+    def setUp(self):
+        from sklearn.preprocessing import StandardScaler
+        X, y = make_blobs(n_samples=200, centers=3, n_features=3, random_state=0)
+        self.X = StandardScaler().fit_transform(X)
+        self.y = y
+        # Seeds deliberately offset from the true blob centres so the centroids
+        # have to travel: without movement there is no drift to regress against.
+        self.seeds = {
+            tuple(self.X[y == c].mean(axis=0) + 0.8):
+                [self.X[np.where(y == c)[0][i]].tolist() for i in range(3)]
+            for c in range(3)
+        }
+        # radial_threshold is loose and the tolerance tight, so convergence is
+        # reached by actually settling rather than by being clamped in place.
+        self.params = dict(
+            n_clusters=3, seeds=self.seeds, density_threshold=0.02,
+            distance_threshold=1.5, radial_threshold=50.0,
+            convergence_tolerance=1e-9,
+        )
+
+    def _assert_scenario_is_not_degenerate(self, kbound, df):
+        """
+        Guard against a test that passes for the wrong reason. If every point
+        were rejected, or every point assigned to one cluster, fidelity would be
+        trivially 1.0 and the assertions below would prove nothing.
+        """
+        gates = set(df["gate"])
+        self.assertIn("assigned", gates, "no point was assigned: gates are vacuous")
+        self.assertGreater((df["gate"] == "assigned").sum(), 20,
+                           "too few assignments for the check to mean anything")
+        self.assertGreater((df["label"] == -1).sum(), 0,
+                           "nothing was rejected: the gates never fired")
+        self.assertGreater(len(set(kbound.labels_)) - 1, 1,
+                           "fewer than two clusters populated")
+
+    def test_fidelity_is_exact_when_converged(self):
+        """Reconstruction reproduces labels_ on every non-seed point."""
+        kbound = KBound(max_iter=300, **self.params).fit(self.X)
+        df = kbound.decision_path(self.X)
+        self._assert_scenario_is_not_degenerate(kbound, df)
+
+        self.assertTrue(kbound.converged_)
+        self.assertEqual(kbound.fidelity_, 1.0)
+        non_seed = ~df["is_seed"].to_numpy()
+        np.testing.assert_array_equal(
+            df["reconstructed_label"].to_numpy()[non_seed],
+            df["label"].to_numpy()[non_seed],
+        )
+
+    def test_fidelity_is_exact_when_max_iter_is_exhausted(self):
+        """
+        Regression test for the centroid off-by-one-iteration.
+
+        The fit loop refreshes the centroids at the end of the body, which the
+        convergence ``break`` skips but a ``max_iter`` exit does not. Rebuilding
+        against ``centroids_`` then replays a decision the algorithm never took
+        (fidelity fell to 0.55 at max_iter=1). ``decision_centroids_`` is what
+        keeps it exact; the drift assertion below is what keeps this test honest.
+        """
+        for max_iter in (1, 2, 3):
+            with self.subTest(max_iter=max_iter):
+                kbound = KBound(max_iter=max_iter, **self.params).fit(self.X)
+                self.assertFalse(kbound.converged_)
+                self.assertEqual(kbound.n_iter_, max_iter)
+
+                drift = np.linalg.norm(kbound.decision_centroids_ - kbound.centroids_)
+                self.assertGreater(
+                    drift, 1e-8,
+                    "centroids_ and decision_centroids_ coincide, so this run "
+                    "cannot detect the off-by-one it is meant to guard",
+                )
+
+                df = kbound.decision_path(self.X)
+                self._assert_scenario_is_not_degenerate(kbound, df)
+                self.assertEqual(kbound.fidelity_, 1.0)
+
+    def test_decision_centroids_match_centroids_on_convergence(self):
+        """The two centroid sets must not diverge when the fit settles."""
+        kbound = KBound(max_iter=300, **self.params).fit(self.X)
+        self.assertTrue(kbound.converged_)
+        np.testing.assert_allclose(kbound.decision_centroids_, kbound.centroids_)
+
+    def test_fidelity_is_exact_across_metrics(self):
+        """The reconstruction follows distance_metric instead of assuming one."""
+        cases = {
+            "euclidean": (dict(distance_metric="euclidean"), None),
+            "mahalanobis": (dict(distance_metric="mahalanobis",
+                                 metric_params={"VI": np.linalg.inv(np.cov(self.X.T))}), None),
+            "custom": (dict(distance_metric="custom",
+                            metric_params={"func": euclidean}), None),
+        }
+        for name, (extra, _) in cases.items():
+            with self.subTest(metric=name):
+                kbound = KBound(max_iter=300, **self.params, **extra).fit(self.X)
+                df = kbound.decision_path(self.X)
+                self._assert_scenario_is_not_degenerate(kbound, df)
+                self.assertEqual(kbound.fidelity_, 1.0)
+
+    def test_fidelity_is_exact_without_dict_seeds(self):
+        """No pinned seeds means every point is derived, none copied."""
+        for seeds in (None, [self.X[10], self.X[80], self.X[150]]):
+            with self.subTest(seeds=type(seeds).__name__):
+                params = dict(self.params, seeds=seeds)
+                kbound = KBound(max_iter=300, **params).fit(self.X)
+                df = kbound.decision_path(self.X)
+                self.assertFalse(df["is_seed"].any())
+                self.assertEqual(kbound.fidelity_, 1.0)
+
+    def test_gates_agree_with_their_boolean_columns(self):
+        """The reported gate is the one the thresholds actually selected."""
+        kbound = KBound(max_iter=300, **self.params).fit(self.X)
+        df = kbound.decision_path(self.X)
+
+        self.assertEqual(
+            set(df["gate"]) - {"assigned", "rejected_density",
+                               "rejected_distance", "seed_forced"},
+            set(),
+        )
+        assigned = df[df["gate"] == "assigned"]
+        self.assertTrue(assigned["density_passed"].all())
+        self.assertTrue(assigned["distance_passed"].all())
+        np.testing.assert_array_equal(assigned["reconstructed_label"],
+                                      assigned["nearest_cluster"])
+
+        # Density is tested before distance, so a density rejection is reported
+        # even when the point also sits outside the distance ball.
+        self.assertFalse(df.loc[df["gate"] == "rejected_density", "density_passed"].any())
+        rejected_dist = df[df["gate"] == "rejected_distance"]
+        self.assertTrue(rejected_dist["density_passed"].all())
+        self.assertFalse(rejected_dist["distance_passed"].any())
+        for gate in ("rejected_density", "rejected_distance"):
+            self.assertTrue((df.loc[df["gate"] == gate, "reconstructed_label"] == -1).all())
+
+    def test_margins_have_the_sign_their_gate_implies(self):
+        kbound = KBound(max_iter=300, **self.params).fit(self.X)
+        df = kbound.decision_path(self.X)
+        self.assertTrue((df.loc[df["density_passed"], "density_margin"] >= 0).all())
+        self.assertTrue((df.loc[~df["density_passed"], "density_margin"] < 0).all())
+        self.assertTrue((df.loc[df["distance_passed"], "distance_margin"] >= 0).all())
+        self.assertTrue((df.loc[~df["distance_passed"], "distance_margin"] < 0).all())
+        self.assertTrue((df["margin"] >= 0).all(), "runner-up closer than the winner")
+
+    def test_seed_points_are_reported_as_forced(self):
+        """Seed labels are copied, not derived, and the table says so."""
+        kbound = KBound(max_iter=300, **self.params).fit(self.X)
+        df = kbound.decision_path(self.X)
+
+        pinned = {row for rows in kbound.seed_indices_.values() for row in rows}
+        self.assertTrue(pinned, "no seed was pinned, so nothing is being tested")
+        seeds = df[df["is_seed"]]
+        self.assertEqual(set(seeds["point_index"]), pinned)
+        self.assertTrue((seeds["gate"] == "seed_forced").all())
+        np.testing.assert_array_equal(seeds["reconstructed_label"], seeds["seed_cluster"])
+        np.testing.assert_array_equal(seeds["label"], seeds["seed_cluster"])
+
+    def test_local_density_aliases_point_densities(self):
+        kbound = KBound(max_iter=300, **self.params).fit(self.X)
+        np.testing.assert_array_equal(kbound.local_density_, kbound.point_densities_)
+        self.assertEqual(len(kbound.local_density_), len(self.X))
+        self.assertAlmostEqual(float(np.max(kbound.local_density_)), 1.0)
+
+    def test_local_density_requires_a_fit(self):
+        with self.assertRaises(AttributeError):
+            KBound(**self.params).local_density_
+
+    def test_decision_path_requires_a_fit(self):
+        with self.assertRaises(RuntimeError):
+            KBound(**self.params).decision_path(self.X)
+
+    def test_decision_path_rejects_a_different_matrix(self):
+        kbound = KBound(max_iter=300, **self.params).fit(self.X)
+        with self.assertRaises(ValueError):
+            kbound.decision_path(self.X[:50])
+        with self.assertRaises(RuntimeError):
+            kbound.decision_path(np.random.RandomState(1).randn(*self.X.shape))
+
+    def test_fidelity_check_fires_on_a_drifted_reconstruction(self):
+        """
+        The guard must be load-bearing, not decoration: reinstating the old
+        behaviour (rebuild against centroids_) has to be caught.
+        """
+        kbound = KBound(max_iter=1, **self.params).fit(self.X)
+        kbound.decision_centroids_ = kbound.centroids_
+        with self.assertRaises(RuntimeError):
+            kbound.decision_path(self.X)
+
+        df = kbound.decision_path(self.X, check_fidelity=False)
+        self.assertEqual(len(df), len(self.X))
+        self.assertLess(kbound.fidelity_, 1.0)
