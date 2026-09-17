@@ -288,12 +288,36 @@ plot_gate_accounting(explanation, column="phase1_gate")
 plot_margin_map(explanation, x="f1", y="f2", value="phase1_distance_margin",
                 xlabel="f1 (your units)", ylabel="f2 (your units)")
 ```
+## Documentation
+Full documentation is available at [https://climb-astro.readthedocs.io](https://climb-astro.readthedocs.io).
 
 ## License
 
 MIT
 
-## Tests Status
+## Project status
 ![Test Status](https://github.com/LorenzoMonti/CLiMB/actions/workflows/test.yml/badge.svg)
+[![Documentation Status](https://readthedocs.org/projects/climb-astro/badge/?version=latest)](https://climb-astro.readthedocs.io/en/latest/?badge=latest)
+[![PyPI version](https://badge.fury.io/py/climb-astro.svg)](https://badge.fury.io/py/climb-astro)
 
-## Citation
+## Citations
+```
+@article{monti2026climb,
+  title={CLiMB: A domain-informed novelty detection clustering framework for galactic archaeology and scientific discovery},
+  author={Monti, Lorenzo and Muraveva, Tatiana and Sheridan, Brian and Massari, Davide and Garofalo, Alessia and Clementini, Gisella and Michelucci, Umberto},
+  journal={Astronomy and Computing},
+  pages={101118},
+  year={2026},
+  publisher={Elsevier}
+}
+
+@article{muraveva2026probing,
+  title={Probing the Milky Way halo with RR Lyrae stars from Gaia Data Release 3},
+  author={Muraveva, T and Monti, L and Massari, D and De Leo, M and Garofalo, A and Clementini, G and Ceccarelli, E and Michelucci, U},
+  journal={Astronomy \& Astrophysics},
+  volume={708},
+  pages={A384},
+  year={2026},
+  publisher={EDP Sciences}
+}
+```
