@@ -108,6 +108,16 @@ class TestKBound(unittest.TestCase):
         self.assertIsNotNone(kbound.centroids_)
         self.assertEqual(kbound.centroids_.shape, (self.n_clusters, self.X.shape[1]))
 
+    def test_fit_with_list_seeds_matching_n_clusters(self):
+        """A list of exactly n_clusters seeds is the plainest way to call this,
+        and it used to crash: the branch assigned the centroids to a local and
+        returned None."""
+        seeds_list = [self.X[10], self.X[30], self.X[60]]
+        kbound = KBound(n_clusters=self.n_clusters, seeds=seeds_list)
+        kbound.fit(self.X)
+        self.assertEqual(kbound.centroids_.shape, (self.n_clusters, self.X.shape[1]))
+        np.testing.assert_array_equal(kbound.original_centroids_, np.array(seeds_list))
+
     def test_fit_with_known_labels(self):
         """Test fit method with known labels."""
         known_labels = np.array([0] * 30 + [1] * 30 + [2] * 40) # Example known labels

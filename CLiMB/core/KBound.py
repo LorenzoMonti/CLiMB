@@ -123,7 +123,7 @@ class KBound:
         elif isinstance(self.seeds, list): # Original list of seeds handling
             seeds = np.array(self.seeds)
             if len(seeds) == self.n_clusters:
-                centroids = seeds
+                return seeds
             elif len(seeds) > self.n_clusters:
                 distances = self._cdist_custom(seeds, seeds)
                 np.fill_diagonal(distances, np.inf)
