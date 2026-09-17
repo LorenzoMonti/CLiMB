@@ -175,3 +175,204 @@ class TestExploratoryAlgorithms(unittest.TestCase):
 
 if __name__ == '__main__':
     unittest.main()
+
+class TestExploratoryExplain(unittest.TestCase):
+    """
+    Phase 2's algorithms do not share a decision structure, so explain() is
+    implemented separately for each rather than generalised. These tests check
+    each one against the model it claims to describe, and check that the ones
+    without a closed form say so instead of inventing a guarantee.
+    """
+
+    def setUp(self):
+        np.random.seed(42)
+        X, _ = make_blobs(n_samples=300, centers=3, n_features=3, random_state=0)
+        self.X = StandardScaler().fit_transform(X)
+        X_moons, _ = make_moons(n_samples=250, noise=0.07, random_state=0)
+        self.X_moons = StandardScaler().fit_transform(X_moons)
+
+    # --- DBSCAN ----------------------------------------------------------
+
+    def test_dbscan_core_set_matches_sklearn(self):
+        """
+        The invariant: the reconstructed core set is sklearn's own core set.
+        sklearn derives core_sample_indices_ inside its implementation, so
+        agreeing with it is evidence of the same rule rather than a lookalike.
+        """
+        for name, X in (("blobs", self.X), ("moons", self.X_moons)):
+            with self.subTest(data=name):
+                dbscan = DBSCANExploratory(eps=0.3, min_samples=5)
+                dbscan.fit_predict(X)
+                df = dbscan.explain(X)
+
+                self.assertEqual(dbscan.fidelity_, 1.0)
+                expected = np.zeros(len(X), dtype=bool)
+                expected[dbscan.model.core_sample_indices_] = True
+                np.testing.assert_array_equal(df["is_core"].to_numpy(), expected)
+
+                # Non-degenerate: all three roles must actually occur, or the
+                # agreement above is trivial.
+                self.assertEqual(set(df["role"]), {"core", "border", "noise"})
+
+    def test_dbscan_core_distance_is_the_radius_that_flips_core_status(self):
+        dbscan = DBSCANExploratory(eps=0.3, min_samples=5)
+        dbscan.fit_predict(self.X)
+        df = dbscan.explain(self.X)
+
+        np.testing.assert_array_equal(df["core_distance"] <= dbscan.eps, df["is_core"])
+        np.testing.assert_allclose(df["eps_margin"], dbscan.eps - df["core_distance"])
+        self.assertTrue((df.loc[df["is_core"], "eps_margin"] >= 0).all())
+        self.assertTrue((df.loc[~df["is_core"], "eps_margin"] < 0).all())
+        self.assertTrue((df["n_neighbors_eps"] >= 1).all(), "self must be counted")
+
+    def test_dbscan_roles_agree_with_the_labels(self):
+        dbscan = DBSCANExploratory(eps=0.3, min_samples=5)
+        labels = dbscan.fit_predict(self.X)
+        df = dbscan.explain(self.X)
+
+        np.testing.assert_array_equal(df["cluster"], labels)
+        self.assertTrue((df.loc[df["role"] == "noise", "cluster"] == -1).all())
+        self.assertTrue((df.loc[df["role"] != "noise", "cluster"] != -1).all())
+        self.assertTrue(df.loc[df["role"] == "core", "is_core"].all())
+        self.assertFalse(df.loc[df["role"] == "border", "is_core"].any())
+
+    def test_dbscan_distance_to_nearest_core_matches_brute_force(self):
+        """
+        Border points take the nearest core; core points take the nearest core
+        other than themselves. Computing it uniformly from the second neighbour
+        -- correct only for core points, whose first neighbour is themselves --
+        hands every border point its second-nearest core instead.
+        """
+        from scipy.spatial.distance import cdist
+
+        dbscan = DBSCANExploratory(eps=0.3, min_samples=5)
+        labels = dbscan.fit_predict(self.X)
+        df = dbscan.explain(self.X)
+        is_core = df["is_core"].to_numpy()
+
+        expected = np.full(len(self.X), np.nan)
+        for cluster in np.unique(labels[labels != -1]):
+            members = np.where(labels == cluster)[0]
+            cores = members[is_core[members]]
+            for member in members:
+                others = cores[cores != member]
+                if len(others):
+                    expected[member] = cdist(self.X[member:member + 1], self.X[others]).min()
+
+        got = df["distance_to_nearest_core"].to_numpy()
+        np.testing.assert_array_equal(np.isnan(expected), np.isnan(got))
+        np.testing.assert_allclose(expected[~np.isnan(expected)], got[~np.isnan(got)])
+
+        border = (~is_core) & (labels != -1)
+        self.assertGreater(border.sum(), 0, "no border points: nothing is being tested")
+
+    def test_dbscan_fidelity_check_fires_on_a_mismatched_matrix(self):
+        dbscan = DBSCANExploratory(eps=0.3, min_samples=5)
+        dbscan.fit_predict(self.X)
+        with self.assertRaises(RuntimeError):
+            dbscan.explain(np.random.RandomState(0).randn(*self.X.shape))
+        df = dbscan.explain(np.random.RandomState(0).randn(*self.X.shape),
+                            check_fidelity=False)
+        self.assertEqual(len(df), len(self.X))
+        self.assertLess(dbscan.fidelity_, 1.0)
+
+    # --- OPTICS ----------------------------------------------------------
+
+    def test_optics_core_distances_match_sklearn(self):
+        optics = OPTICSExploratory(min_samples=5)
+        optics.fit_predict(self.X)
+        df = optics.explain(self.X)
+
+        self.assertEqual(optics.fidelity_, 1.0)
+        np.testing.assert_allclose(df["core_distance"], optics.model.core_distances_)
+
+    def test_optics_order_position_inverts_the_ordering(self):
+        """Sorting the table by order_position reproduces the reachability plot."""
+        optics = OPTICSExploratory(min_samples=5)
+        optics.fit_predict(self.X)
+        df = optics.explain(self.X)
+
+        order_position = df["order_position"].to_numpy()
+        self.assertEqual(sorted(order_position.tolist()), list(range(len(self.X))))
+        np.testing.assert_array_equal(np.argsort(order_position), optics.model.ordering_)
+
+        profile = df.sort_values("order_position")["reachability"].to_numpy()
+        expected = optics.model.reachability_[optics.model.ordering_]
+        # The walk's first point was never reached, so its reachability is inf.
+        np.testing.assert_allclose(profile[1:], expected[1:])
+        self.assertTrue(np.isinf(profile[0]))
+
+    def test_optics_reports_no_core_border_split(self):
+        """OPTICS fixes no radius, so it must not borrow DBSCAN's vocabulary."""
+        optics = OPTICSExploratory(min_samples=5)
+        optics.fit_predict(self.X)
+        df = optics.explain(self.X)
+        self.assertNotIn("role", df.columns)
+        self.assertNotIn("is_core", df.columns)
+        self.assertNotIn("eps_margin", df.columns)
+
+    # --- HDBSCAN ---------------------------------------------------------
+
+    def test_hdbscan_declares_it_has_no_reconstruction(self):
+        """
+        HDBSCAN's labels come from the stability of a condensed tree; there is no
+        closed form to replay. fidelity_ must stay None rather than report a 1.0
+        that would describe nothing.
+        """
+        model = HDBSCANExploratory(min_cluster_size=10)
+        model.fit_predict(self.X)
+        model.explain(self.X)
+        self.assertIsNone(model.fidelity_)
+
+    def test_hdbscan_reports_membership_by_stability(self):
+        model = HDBSCANExploratory(min_cluster_size=10)
+        labels = model.fit_predict(self.X)
+        df = model.explain(self.X)
+
+        np.testing.assert_array_equal(df["cluster"], labels)
+        self.assertTrue(((df["membership_probability"] >= 0) &
+                         (df["membership_probability"] <= 1)).all())
+        self.assertTrue((df.loc[df["is_noise"], "membership_probability"] == 0).all())
+        self.assertTrue(df.loc[df["is_noise"], "cluster_persistence"].isna().all())
+        self.assertFalse(df.loc[~df["is_noise"], "cluster_persistence"].isna().any())
+
+        # Persistence is a per-cluster score, identical across a cluster's members.
+        for _, group in df[~df["is_noise"]].groupby("cluster"):
+            self.assertEqual(group["cluster_persistence"].nunique(), 1)
+
+        self.assertNotIn("role", df.columns)
+        self.assertNotIn("is_core", df.columns)
+
+    # --- shared contract --------------------------------------------------
+
+    def test_explain_is_required_by_the_base_class(self):
+        class Incomplete(ExploratoryClusteringBase):
+            def fit_predict(self, X):
+                return np.zeros(len(X), dtype=int)
+
+            def get_name(self):
+                return "Incomplete"
+
+            def get_parameters(self):
+                return ""
+
+        with self.assertRaises(TypeError):
+            Incomplete()
+
+    def test_explain_guards_apply_to_every_implementation(self):
+        for build in (lambda: DBSCANExploratory(eps=0.3, min_samples=5),
+                      lambda: OPTICSExploratory(min_samples=5),
+                      lambda: HDBSCANExploratory(min_cluster_size=10)):
+            model = build()
+            with self.subTest(algorithm=model.get_name()):
+                with self.assertRaises(RuntimeError):
+                    model.explain(self.X)          # not fitted yet
+
+                model.fit_predict(self.X)
+                with self.assertRaises(ValueError):
+                    model.explain(self.X[:50])     # wrong number of rows
+
+                df = model.explain(self.X)
+                self.assertEqual(len(df), len(self.X))
+                self.assertEqual(df["point_index"].tolist(), list(range(len(self.X))))
+                self.assertIn("cluster", df.columns)
