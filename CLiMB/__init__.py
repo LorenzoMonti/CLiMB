@@ -9,4 +9,4 @@ See ``CLiMB.explain`` for the interpretability layer, which reconstructs both
 phases' decisions in closed form rather than fitting a surrogate to them.
 """
 
-__version__ = "0.4.0"
+__version__ = "0.3.1"
