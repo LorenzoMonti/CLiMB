@@ -179,8 +179,6 @@ cython_debug/
 # ---------------------------------------------------------------------------
 prova.py
 test_use_cases.py
-pypi_commands.txt
-MANIFEST.in
 
 # Parallel experiment: KBound + Mean Shift refinement. Not imported by CLiMB.py,
 # not part of the public package.
