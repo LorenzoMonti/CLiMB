@@ -237,6 +237,21 @@ Phase 1 rejected, and `final_label`. Call it *before* `inverse_transform()`,
 which rewrites the stored centroids in place; pass `scaler=` to report the
 feature columns in original units instead.
 
+### Two numbering systems
+
+Phase 2's algorithm numbers its clusters from 0, and CLiMB offsets them so they
+do not collide with Phase 1's. Both appear in the table, and the column names
+say which is which:
+
+| column | numbering |
+|---|---|
+| `final_label`, `phase1_label`, `phase2_label` | CLiMB's — comparable with each other and with `get_labels()` |
+| `phase2_algorithm_cluster` | the algorithm's own, starting at 0 |
+
+Key any `{label: name}` map on CLiMB's numbering. The two overlap, so a map
+built for the whole clustering will match the algorithm's cluster 0 *silently*
+instead of raising, and label a Phase-2 discovery with a Phase-1 cluster's name.
+
 ### What is verified, and what is not
 
 The package keeps three kinds of output apart rather than letting one borrow

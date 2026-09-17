@@ -70,7 +70,16 @@ class ExploratoryClusteringBase(ABC):
         Returns
         -------
         pandas.DataFrame
-            One row per point of ``X``.
+            One row per point of ``X``. The ``cluster`` column carries the
+            algorithm's **own** numbering, starting at 0, because that is what
+            the algorithm produced and this object knows nothing of CLiMB.
+
+            When Phase 2 runs inside CLiMB those numbers are offset so they do
+            not collide with Phase 1's, so ``cluster`` here is *not* comparable
+            with ``CLiMB.get_labels()``. The two overlap numerically, so a
+            ``{label: name}`` map built for the whole clustering will match
+            these silently rather than raise. ``CLiMB.explain`` keeps both, as
+            ``phase2_label`` and ``phase2_algorithm_cluster``.
         """
         pass
 
