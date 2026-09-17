@@ -173,3 +173,34 @@ cython_debug/
 
 # PyPI configuration file
 .pypirc
+
+# ---------------------------------------------------------------------------
+# Local experiments and scratch work (kept on disk, out of the repository)
+# ---------------------------------------------------------------------------
+prova.py
+test_use_cases.py
+pypi_commands.txt
+MANIFEST.in
+
+# Parallel experiment: KBound + Mean Shift refinement. Not imported by CLiMB.py,
+# not part of the public package.
+CLiMB/core/KBoundRefined.py
+
+# Datasets pulled down by the examples (hundreds of MB) and archives
+examples/CLiMB_MNIST/
+examples/CLiMB_activity_recognition/
+examples/UCI_HAR/
+examples/clustering_tutorial/
+examples/fashion_MNIST/
+examples/complex_seeds.py
+*.zip
+*.arff
+
+# Figures produced by local runs
+2d.png
+3d.png
+seismic_clusters_2d.png
+seismic_clusters_3d.png
+
+# WSL / Windows alternate data streams
+*:Zone.Identifier

@@ -29,11 +29,12 @@ classifiers = [
 
 [project.urls]
 Homepage = "https://github.com/LorenzoMonti/CLiMB"
+Documentation = "https://climb-astro.readthedocs.io/en/latest/"
 Repository = "https://github.com/LorenzoMonti/CLiMB.git"
 BugTracker = "https://github.com/LorenzoMonti/CLiMB/issues"
 
 [project.optional-dependencies]
 dev = ["pytest>=6.0", "black", "flake8", "sphinx", "sphinx-rtd-theme"]
 
-[tool.setuptools]
-packages = ["CLiMB"]
+[tool.setuptools.packages.find]
+include = ["CLiMB*"]
