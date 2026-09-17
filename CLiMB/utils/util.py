@@ -92,3 +92,40 @@ def plot_blobs(blobs_dict, blob_df, filename, axis_names, hiding_cluster, save_p
     plt.legend()
     plt.grid(True)
     plt.savefig(f"{save_path}/compare_{filename}_plot.png")
+
+def cohens_d(a, b):
+    """
+    Standardised difference between two samples, NaN-robust.
+
+    **Descriptive statistic, not a reconstruction.** Nothing in CLiMB decides
+    anything with this number. It answers "how far apart do these two groups sit
+    on this feature", which is a question asked *after* the clustering, about
+    the result -- it carries none of the exactness that the closed-form
+    explanations do. See ``CLiMB.explain`` for where that line is drawn.
+
+    Note this is a median-based variant: the numerator uses medians rather than
+    means, which is robust to the tails a cluster's outskirts produce, while the
+    denominator stays the pooled standard deviation. It is not the textbook
+    statistic, so do not read it against published thresholds without allowing
+    for that.
+
+    Parameters
+    ----------
+    a, b : array-like
+        The two samples. NaNs are dropped independently from each.
+
+    Returns
+    -------
+    float
+        The effect size, or NaN if either side keeps fewer than two values.
+    """
+    a = np.asarray(a, dtype=float)
+    b = np.asarray(b, dtype=float)
+    a = a[~np.isnan(a)]
+    b = b[~np.isnan(b)]
+    if len(a) < 2 or len(b) < 2:
+        return np.nan
+    pooled = np.sqrt((np.var(a) + np.var(b)) / 2)
+    if pooled == 0:
+        return np.nan
+    return float((np.median(a) - np.median(b)) / pooled)

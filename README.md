@@ -11,6 +11,8 @@ A versatile two-phase clustering algorithm designed for datasets with both known
 - **Visualization Tools**: Built-in 2D and 3D visualization capabilities for cluster analysis.
 - **Parameter Tuning**: Builder pattern for flexible parameter adjustment.
 - **Customizable Distance Metrics**: Now supports various distance metrics such as Euclidean, Mahalanobis, and custom metrics, offering greater flexibility in distance calculation.
+- **Interpretability**: `explain()` reconstructs both phases' decisions in closed form and
+  verifies the reconstruction against the model, rather than fitting a surrogate to imitate it.
 - **Advanced Seed Points**: Ability to initialize clustering with known seed points provided in a dictionary structure, allowing for more precise control over centroid initialization.
 
 ## Installation
@@ -215,6 +217,76 @@ kbound = KBound(
     # ... and so on for the other parameters
 )
 kbound.fit(X)
+```
+
+## Interpretability
+
+CLiMB's decisions are not a black box, so the explanation is not a surrogate.
+Phase 1 applies two explicit gates (density, distance) plus seed forcing; DBSCAN
+applies a radius rule. Those are rules that can be replayed, so `explain()`
+**reconstructs** them in closed form and checks the reconstruction against the
+model. SHAP or LIME would fit a second model to imitate the first; here there is
+nothing to imitate.
+
+```python
+explanation = climb.explain(X_scaled, feature_names=["f1", "f2", "f3"])
+```
+
+One row per point: `phase1_*` columns for every point, `phase2_*` for the points
+Phase 1 rejected, and `final_label`. Call it *before* `inverse_transform()`,
+which rewrites the stored centroids in place; pass `scaler=` to report the
+feature columns in original units instead.
+
+### What is verified, and what is not
+
+The package keeps three kinds of output apart rather than letting one borrow
+another's credibility.
+
+**Exact reconstructions** — replayed from the fitted model and verified on every
+call, raising rather than returning a table that does not describe the model:
+
+| | reconstructs | checked against |
+|---|---|---|
+| `KBound.decision_path` | gates and labels | `labels_` on non-seed points |
+| `KBound.feature_attribution` | additive split of the metric | shares sum to the distance |
+| `DBSCANExploratory.explain` | core/border/noise roles | `core_sample_indices_` |
+| `OPTICSExploratory.explain` | core distances | `core_distances_` |
+
+Seed points are excluded from the Phase-1 check because their label is copied,
+not derived, which would make the check vacuous.
+
+**Reported model state** — exact, but with nothing independent to check it
+against. `HDBSCANExploratory.explain` reports membership probability, GLOSH
+outlier score and cluster persistence; its labels come from the stability of a
+condensed tree and there is no closed form to replay, so `fidelity_` stays
+`None` rather than carrying a meaningless 1.0.
+
+**Descriptive statistics** — `CLiMB.explain.descriptive` holds contrastive
+signatures and effect sizes. These are computed after the fact, by our rules,
+and nothing verifies them. A signature says *these clusters differ on this
+feature*; it does not say *this is why the point was assigned*. For that, use
+`feature_attribution`, which decomposes the metric the model actually used.
+
+### Why the three algorithms explain differently
+
+`explain()` is abstract on `ExploratoryClusteringBase` and implemented
+separately, not generalised. Phase 2's algorithms do not share a decision
+structure: DBSCAN assigns roles at one fixed radius, OPTICS refuses to fix a
+radius and orders points by reachability, HDBSCAN decides membership by cluster
+stability across every scale at once. Common columns would mean inventing a
+core/border split for two algorithms that have none.
+
+### Plots
+
+The helpers in `CLiMB.explain` are domain-neutral: axis and colourbar text is
+always the caller's, never inferred from the features.
+
+```python
+from CLiMB.explain import plot_gate_accounting, plot_margin_map
+
+plot_gate_accounting(explanation, column="phase1_gate")
+plot_margin_map(explanation, x="f1", y="f2", value="phase1_distance_margin",
+                xlabel="f1 (your units)", ylabel="f2 (your units)")
 ```
 
 ## License

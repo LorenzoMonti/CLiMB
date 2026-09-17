@@ -9,8 +9,10 @@ class KBound:
     """
     Constrained k-means anchored to literature seed points.
 
-    Attributes set by ``fit`` (public, stable API)
-    ----------------------------------------------
+    The attributes below are set by ``fit`` and are public, stable API.
+
+    Attributes
+    ----------
     labels_ : ndarray of shape (n_samples,)
         Raw cluster index per point, ``-1`` for points rejected by a gate.
         These are the labels CLiMB's Phase 1 exposes as ``constrained_labels``.
@@ -553,6 +555,152 @@ class KBound:
             # Lead of the winning centroid over the runner-up.
             "margin": d_competitor - d_nearest,
         })
+
+    def _metric_matrix(self):
+        """
+        The matrix M for which the metric is the quadratic form
+        ``d(x, c)^2 = (x - c)^T M (x - c)``, or None when the configured metric
+        has no such form.
+        """
+        if self.distance_metric == "euclidean":
+            return np.eye(len(self.centroids_[0]))
+        if self.distance_metric == "mahalanobis":
+            if self.metric_params and "VI" in self.metric_params:
+                return np.asarray(self.metric_params["VI"])
+        return None
+
+    def feature_attribution(self, X, feature_names=None):
+        """
+        Split each point's distance into an exact per-feature contribution.
+
+        Euclidean and Mahalanobis distances are quadratic forms, so the squared
+        distance decomposes additively over the features::
+
+            d(x, c)^2 = (x - c)^T M (x - c) = sum_a (x - c)_a * (M (x - c))_a
+
+        Each term is that feature's share of the distance, and the shares sum to
+        the distance exactly. There is no attribution model here and nothing is
+        approximated -- this is algebra on the metric the model actually used,
+        which is why it belongs beside ``decision_path`` rather than with the
+        descriptive statistics.
+
+        Two views are returned. The **absolute** contribution says which feature
+        placed the point where it is relative to its own cluster centroid. The
+        **discriminative** contribution says which feature favours that cluster
+        over the runner-up: it is the difference of the two decompositions, so
+        its terms sum to ``d_competitor^2 - d_assigned^2``. The discriminative
+        view is usually the one worth reading, since a large absolute term may
+        just mean the feature has a wide spread.
+
+        Points are explained against the cluster they were actually placed in,
+        which for a forced seed need not be the nearest one. Noise points are
+        explained against the nearest cluster they failed to join.
+
+        Parameters
+        ----------
+        X : array-like of shape (n_samples, n_features)
+            The same matrix passed to ``fit``.
+        feature_names : sequence of str, optional
+            Column names, defaulting to ``feature_0 ... feature_{d-1}``.
+
+        Returns
+        -------
+        pandas.DataFrame
+            One row per point: the reference and competitor clusters, the two
+            squared distances, and per feature ``contrib_<name>``,
+            ``contrib_<name>_frac``, ``disc_<name>``, ``disc_<name>_frac``, plus
+            the dominant feature of each view.
+
+        Raises
+        ------
+        RuntimeError
+            If the model is not fitted, or the configured metric is not a
+            quadratic form. A custom metric has no additive decomposition, so
+            there is no honest per-feature split to return.
+        ValueError
+            If ``X`` has a different number of rows than the fitted data, or
+            ``feature_names`` has the wrong length.
+        """
+        if not hasattr(self, "labels_"):
+            raise RuntimeError(
+                "feature_attribution() needs a fitted model; call fit(X) first."
+            )
+
+        X = np.asarray(X)
+        n = len(self.labels_)
+        if len(X) != n:
+            raise ValueError(
+                f"feature_attribution() expects the matrix passed to fit(): "
+                f"got {len(X)} rows, fitted on {n}."
+            )
+
+        matrix = self._metric_matrix()
+        if matrix is None:
+            raise RuntimeError(
+                f"distance_metric={self.distance_metric!r} is not a quadratic "
+                "form, so the squared distance does not decompose additively "
+                "over the features and there is no exact attribution to give. "
+                "Use decision_path() for the gate-level explanation."
+            )
+
+        n_features = X.shape[1]
+        if feature_names is None:
+            feature_names = [f"feature_{j}" for j in range(n_features)]
+        feature_names = list(feature_names)
+        if len(feature_names) != n_features:
+            raise ValueError(
+                f"feature_names has {len(feature_names)} entries for "
+                f"{n_features} columns of X."
+            )
+
+        arange = np.arange(n)
+        distances = self._cdist_custom(X, self.decision_centroids_)
+        nearest = np.argmin(distances, axis=1)
+
+        # Explain each point against the cluster it ended up in; a forced seed's
+        # cluster may not be its nearest. Noise falls back to the nearest one.
+        reference = np.where(self.labels_ != -1, self.labels_, nearest)
+
+        masked = distances.copy()
+        masked[arange, reference] = np.inf
+        competitor = np.argmin(masked, axis=1)
+
+        delta_reference = X - self.decision_centroids_[reference]
+        contribution = delta_reference * (delta_reference @ matrix)
+        delta_competitor = X - self.decision_centroids_[competitor]
+        contribution_competitor = delta_competitor * (delta_competitor @ matrix)
+        discriminative = contribution_competitor - contribution
+
+        d2_reference = contribution.sum(axis=1)
+        d2_competitor = contribution_competitor.sum(axis=1)
+        margin2 = d2_competitor - d2_reference
+
+        table = pd.DataFrame({
+            "point_index": arange,
+            "reference_cluster": reference,
+            "competitor_cluster": competitor,
+            "d2_reference": d2_reference,
+            "d2_competitor": d2_competitor,
+            "margin2": margin2,
+        })
+
+        # Guard the shares against a zero denominator: a point sitting on its
+        # centroid, or tied between two clusters, has no share to report.
+        safe_d2 = np.where(d2_reference > 0, d2_reference, np.nan)
+        safe_margin2 = np.where(margin2 != 0, margin2, np.nan)
+        for j, name in enumerate(feature_names):
+            table[f"contrib_{name}"] = contribution[:, j]
+            table[f"contrib_{name}_frac"] = contribution[:, j] / safe_d2
+            table[f"disc_{name}"] = discriminative[:, j]
+            table[f"disc_{name}_frac"] = discriminative[:, j] / safe_margin2
+
+        table["dominant_feature"] = [
+            feature_names[a] for a in np.argmax(contribution, axis=1)
+        ]
+        table["dominant_discriminative_feature"] = [
+            feature_names[a] for a in np.argmax(discriminative, axis=1)
+        ]
+        return table
 
     def visualize_clustering(self, X):
         """

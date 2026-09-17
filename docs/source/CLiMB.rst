@@ -8,6 +8,7 @@ Subpackages
    :maxdepth: 4
 
    CLiMB.core
+   CLiMB.explain
    CLiMB.exploratory
    CLiMB.utils
 
