@@ -290,11 +290,20 @@ class TestPlotHelpers(unittest.TestCase):
         self.assertEqual(int(total), len(self.table))
 
     def test_roles_plot_renders_the_phase2_table(self):
+        """
+        Plot against phase2_label, not phase2_algorithm_cluster: a name map is
+        keyed on CLiMB's numbering, and the algorithm's own starts back at 0
+        where Phase 1's names live.
+        """
         phase2 = self.table[self.table["phase"] == 2]
+        discovery = int(phase2.loc[phase2["phase2_label"] != -1, "phase2_label"].iloc[0])
         axes = plot_roles(phase2, x="a", y="b", role_column="phase2_role",
-                          cluster_column="phase2_cluster",
-                          cluster_names={0: "a name the package cannot know"})
+                          cluster_column="phase2_label",
+                          cluster_names={discovery: "a name the package cannot know"})
         self.assertTrue(axes.get_legend() is not None)
+
+        legend = [text.get_text() for text in axes.get_legend().get_texts()]
+        self.assertTrue(any("a name the package cannot know" in entry for entry in legend))
 
     def test_heatmap_survives_an_all_nan_matrix(self):
         """An effect size with too little data is NaN, and that must still draw."""
@@ -364,3 +373,72 @@ class TestPackageStaysDomainNeutral(unittest.TestCase):
         self.assertTrue(pattern.search("# one row per star".lower()))
         self.assertFalse(pattern.search("labels might start from 3".lower()))
         self.assertFalse(pattern.search("the walk restarted here".lower()))
+
+
+class TestLabelNumberingIsUnambiguous(unittest.TestCase):
+    """
+    Phase 2's algorithm numbers its clusters from 0 and CLiMB offsets them, so
+    the same table carries two numbering systems. They overlap, which means
+    confusing them does not raise -- it produces a plausible, wrong answer. A
+    name map built for Phase 1 will happily match the algorithm's cluster 0 and
+    label a discovery with a constrained cluster's name.
+
+    The column names are the only thing standing between a reader and that
+    mistake, so they are pinned here.
+    """
+
+    def setUp(self):
+        np.random.seed(42)
+        X, y = make_blobs(n_samples=600, centers=6, n_features=3, random_state=7)
+        scaler = StandardScaler()
+        self.X = scaler.fit_transform(X)
+        seeds = {
+            tuple(self.X[y == c].mean(axis=0)):
+                [self.X[np.where(y == c)[0][i]].tolist() for i in range(4)]
+            for c in range(3)
+        }
+        self.climb = CLiMB(
+            constrained_clusters=3, seed_points=seeds, density_threshold=0.03,
+            distance_threshold=1.0, radial_threshold=2.0, convergence_tolerance=1e-6,
+            exploratory_algorithm=DBSCANExploratory(eps=0.30, min_samples=5),
+        ).fit(self.X)
+        self.table = self.climb.explain(self.X)
+        self.phase2 = self.table[self.table["phase"] == 2]
+
+    def test_the_two_numberings_really_do_collide(self):
+        """Without this, the rest of the class could pass for the wrong reason."""
+        algorithm = set(self.phase2["phase2_algorithm_cluster"].dropna())
+        phase1 = set(self.table.loc[self.table["phase"] == 1, "phase1_label"])
+        self.assertTrue(algorithm & phase1,
+                        "the numberings no longer overlap, so this guard is moot")
+
+    def test_phase_label_columns_agree_with_final_label(self):
+        """phase1_label and phase2_label mean the same thing, so they read alike."""
+        phase1 = self.table[self.table["phase"] == 1]
+        np.testing.assert_array_equal(phase1["phase1_label"], phase1["final_label"])
+        np.testing.assert_array_equal(
+            self.phase2["phase2_label"].to_numpy(),
+            self.phase2["final_label"].to_numpy().astype(float),
+        )
+
+    def test_the_algorithms_own_numbering_is_named_for_it(self):
+        self.assertIn("phase2_algorithm_cluster", self.table.columns)
+        # The old name said "cluster" without saying whose, which is what let it
+        # be read as a CLiMB label.
+        self.assertNotIn("phase2_cluster", self.table.columns)
+
+        raw = self.climb.exploratory_algorithm.explain(self.climb.unassigned_points)
+        np.testing.assert_array_equal(
+            self.phase2["phase2_algorithm_cluster"].to_numpy(),
+            raw["cluster"].to_numpy().astype(float),
+        )
+
+    def test_the_offset_is_what_separates_the_two(self):
+        clustered = self.phase2["phase2_algorithm_cluster"] != -1
+        offset = (self.phase2.loc[clustered, "phase2_label"]
+                  - self.phase2.loc[clustered, "phase2_algorithm_cluster"])
+        self.assertEqual(offset.nunique(), 1, "the offset must be one constant")
+        self.assertGreater(offset.iloc[0], 0)
+        # Noise stays -1 in both, rather than being shifted.
+        noise = ~clustered
+        self.assertTrue((self.phase2.loc[noise, "phase2_label"] == -1).all())

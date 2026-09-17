@@ -254,6 +254,25 @@ class CLiMB:
         check_fidelity : bool, default=True
             Raise if either phase fails to reproduce its model.
 
+        Two numbering systems
+        ---------------------
+        Phase 2's algorithm numbers its own clusters from 0, and CLiMB offsets
+        them so they do not collide with Phase 1's. Both numberings appear in
+        this table, so the columns say which is which:
+
+        ``final_label``, ``phase1_label``, ``phase2_label``
+            CLiMB's numbering. These are comparable with each other and with
+            ``get_labels()``, and are what a ``{label: name}`` map should key on.
+        ``phase2_algorithm_cluster``
+            The exploratory algorithm's own numbering, starting at 0. Useful for
+            matching its internals; **not** a CLiMB label.
+
+        The distinction is worth the column name because the two overlap
+        numerically. A discovery the algorithm calls cluster 0 is a different
+        object from the constrained cluster 0, so a name map built for Phase 1
+        will match it silently instead of raising, and label a plot with names
+        belonging to the other phase.
+
         Returns
         -------
         pandas.DataFrame
@@ -314,7 +333,17 @@ class CLiMB:
                 else:
                     full = np.full(n, np.nan)
                 full[rejected] = values
-                table[f"phase2_{column}"] = full
+                # The algorithm numbers its own clusters from 0, which collides
+                # with Phase 1's indices. Naming the column after its numbering
+                # is what stops it being read as a CLiMB label.
+                name = "algorithm_cluster" if column == "cluster" else column
+                table[f"phase2_{name}"] = full
+
+            # The same clusters in CLiMB's numbering, so phase1_label and
+            # phase2_label mean the same thing and can be read the same way.
+            labels = np.full(n, np.nan)
+            labels[rejected] = np.asarray(self.exploratory_labels)
+            table["phase2_label"] = labels
 
         return table
 
